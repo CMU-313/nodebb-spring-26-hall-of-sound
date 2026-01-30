@@ -33,10 +33,15 @@ post:
               items:
                 type: string
               example: [test, topic]
+            topicType:
+              type: string
+              description: The type of topic — either "question" or "note"
+              example: question
           required:
             - cid
             - title
             - content
+            - topicType
   responses:
     '200':
       description: topic successfully created
