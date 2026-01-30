@@ -223,6 +223,9 @@ TopicObjectSlim:
           type: number
         viewcount:
           type: number
+        topicType:
+          type: string
+          description: The type of topic — either "question" or "note"
         postercount:
           type: number
         followercount:
