@@ -108,6 +108,9 @@ module.exports = function (Topics) {
 
 		await Topics.validateTags(data.tags, data.cid, uid);
 		data.tags = await Topics.filterTags(data.tags, data.cid);
+		if (data.topicType) {
+			data.tags.push(data.topicType === 'question' ? 'Question' : 'Note');
+		}
 		if (!data.fromQueue && !isAdmin) {
 			Topics.checkContent(data.sourceContent || data.content);
 			if (!await posts.canUserPostContentWithLinks(uid, data.content)) {

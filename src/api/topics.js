@@ -13,6 +13,13 @@ const utils = require('../utils');
 
 const apiHelpers = require('./helpers');
 
+function getTopicTypeTag(topicType) {
+	if (!topicType) {
+		return null;
+	}
+	return topicType === 'question' ? 'Question' : 'Note';
+}
+
 const { doTopicAction } = apiHelpers;
 
 const websockets = require('../socket.io');
@@ -57,9 +64,6 @@ topicsAPI.create = async function (caller, data) {
 	const payload = { ...data };
 	delete payload.tid;
 	payload.tags = payload.tags || [];
-	if (payload.topicType) {
-		payload.tags.push(payload.topicType === 'question' ? 'Question' : 'Note');
-	}
 	apiHelpers.setDefaultPostData(caller, payload);
 	const isScheduling = parseInt(data.timestamp, 10) > payload.timestamp;
 	if (isScheduling) {
@@ -209,7 +213,11 @@ topicsAPI.deleteTags = async (caller, { tid }) => {
 		throw new Error('[[error:no-privileges]]');
 	}
 
+	const typeTag = getTopicTypeTag(await topics.getTopicField(tid, 'topicType'));
 	await topics.deleteTopicTags(tid);
+	if (typeTag) {
+		await topics.addTags([typeTag], [tid]);
+	}
 };
 
 topicsAPI.getThumbs = async (caller, { tid, thumbsOnly }) => {
