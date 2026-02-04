@@ -34,9 +34,11 @@ module.exports = function (Topics) {
 
 	Topics.filterTags = async function (tags, cid) {
 		const result = await plugins.hooks.fire('filter:tags.filter', { tags: tags, cid: cid });
+		const reservedTags = ['question', 'note'];
 		tags = _.uniq(result.tags)
 			.map(tag => utils.cleanUpTag(tag, meta.config.maximumTagLength))
-			.filter(tag => tag && tag.length >= (meta.config.minimumTagLength || 3));
+			.filter(tag => tag && tag.length >= (meta.config.minimumTagLength || 3))
+			.filter(tag => !reservedTags.includes(tag.toLowerCase()));
 
 		return await filterCategoryTags(tags, cid);
 	};
@@ -415,6 +417,10 @@ module.exports = function (Topics) {
 		const cid = await Topics.getTopicField(tid, 'cid');
 
 		tags = await Topics.filterTags(tags, cid);
+		const topicType = await Topics.getTopicField(tid, 'topicType');
+		if (topicType) {
+			tags.push(topicType === 'question' ? 'Question' : 'Note');
+		}
 		await Topics.addTags(tags, [tid]);
 		plugins.hooks.fire('action:topic.updateTags', { tags, tid });
 	};

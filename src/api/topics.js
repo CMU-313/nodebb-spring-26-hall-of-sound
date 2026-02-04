@@ -13,6 +13,13 @@ const utils = require('../utils');
 
 const apiHelpers = require('./helpers');
 
+function getTopicTypeTag(topicType) {
+	if (!topicType) {
+		return null;
+	}
+	return topicType === 'question' ? 'Question' : 'Note';
+}
+
 const { doTopicAction } = apiHelpers;
 
 const websockets = require('../socket.io');
@@ -206,7 +213,11 @@ topicsAPI.deleteTags = async (caller, { tid }) => {
 		throw new Error('[[error:no-privileges]]');
 	}
 
+	const typeTag = getTopicTypeTag(await topics.getTopicField(tid, 'topicType'));
 	await topics.deleteTopicTags(tid);
+	if (typeTag) {
+		await topics.addTags([typeTag], [tid]);
+	}
 };
 
 topicsAPI.getThumbs = async (caller, { tid, thumbsOnly }) => {

@@ -78,3 +78,8 @@ test.sh
 dump.rdb
 .archiver_shadow/
 .snapshots/
+
+.claude/
+.history/
+build/
+build_old/
