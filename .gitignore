@@ -82,4 +82,12 @@ dump.rdb
 .claude/
 .history/
 build/
-build_old/
+Feature_Plan.md
+CLAUDE.md
+
+# Temp/corrupted directories (Docker overlayfs issues)
+# Use wildcards to catch renamed corrupted dirs
+npm-trash*/
+build_old*/
+build-corrupted-*/
+.nyc_output-corrupted-*/

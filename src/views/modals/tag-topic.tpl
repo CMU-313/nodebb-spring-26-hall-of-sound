@@ -1,6 +1,10 @@
 <div class="card tool-modal shadow">
 	<h5 class="card-header">
+		{{{ if modalTitle }}}
+		{modalTitle}
+		{{{ else }}}
 		[[topic:thread-tools.tag]]
+		{{{ end }}}
 	</h5>
 	<div class="card-body d-flex flex-column gap-2">
 		{{{ if tagWhitelist }}}
@@ -22,6 +26,12 @@
 	</div>
 	<div class="card-footer text-end">
 		<button class="btn btn-link btn-sm" id="tag-topic-cancel">[[global:buttons.close]]</button>
-		<button class="btn btn-primary btn-sm" id="tag-topic-commit">[[global:save]]</button>
+		<button class="btn btn-primary btn-sm" id="tag-topic-commit">
+			{{{ if commitLabel }}}
+			{commitLabel}
+			{{{ else }}}
+			[[global:save]]
+			{{{ end }}}
+		</button>
 	</div>
 </div>

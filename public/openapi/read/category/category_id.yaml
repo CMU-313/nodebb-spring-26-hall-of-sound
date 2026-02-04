@@ -38,6 +38,8 @@ get:
                     type: array
                     items:
                       type: string
+                  canManageTagWhitelist:
+                    type: boolean
                   unread:
                     type: boolean
                     description: True if category or it's children have unread topics

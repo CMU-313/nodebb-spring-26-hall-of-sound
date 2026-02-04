@@ -16,6 +16,7 @@ const translator = require('../translator');
 const utils = require('../utils');
 const batch = require('../batch');
 const cache = require('../cache');
+const activitypub = require('../activitypub');
 
 module.exports = function (Topics) {
 	Topics.createTags = async function (tags, tid, timestamp) {
@@ -73,10 +74,12 @@ module.exports = function (Topics) {
 			throw new Error('[[error:invalid-data]]');
 		}
 		tags = _.uniq(tags);
-		const [categoryData, isPrivileged, currentTags] = await Promise.all([
+		const [categoryData, isPrivileged, currentTags, tagWhitelist, isAdminOrMod] = await Promise.all([
 			categories.getCategoryFields(cid, ['minTags', 'maxTags']),
 			user.isPrivileged(uid),
 			tid ? Topics.getTopicTags(tid) : [],
+			utils.isNumber(cid) ? categories.getTagWhitelist([cid]) : [],
+			utils.isNumber(cid) ? privileges.categories.isAdminOrMod(cid, uid) : user.isPrivileged(uid),
 		]);
 		if (tags.length < parseInt(categoryData.minTags, 10)) {
 			throw new Error(`[[error:not-enough-tags, ${categoryData.minTags}]]`);
@@ -84,8 +87,11 @@ module.exports = function (Topics) {
 			throw new Error(`[[error:too-many-tags, ${categoryData.maxTags}]]`);
 		}
 
-		const addedTags = tags.filter(tag => !currentTags.includes(tag));
-		const removedTags = currentTags.filter(tag => !tags.includes(tag));
+		const cleanTags = _.uniq(tags
+			.map(tag => utils.cleanUpTag(tag, meta.config.maximumTagLength))
+			.filter(Boolean));
+		const addedTags = cleanTags.filter(tag => !currentTags.includes(tag));
+		const removedTags = currentTags.filter(tag => !cleanTags.includes(tag));
 		const systemTags = (meta.config.systemTags || '').split(',');
 
 		if (!isPrivileged && systemTags.length && addedTags.length && addedTags.some(tag => systemTags.includes(tag))) {
@@ -94,6 +100,22 @@ module.exports = function (Topics) {
 
 		if (!isPrivileged && systemTags.length && removedTags.length && removedTags.some(tag => systemTags.includes(tag))) {
 			throw new Error('[[error:cant-remove-system-tag]]');
+		}
+
+		const whitelist = Array.isArray(tagWhitelist[0]) ? tagWhitelist[0] : [];
+		const whitelistSet = new Set(whitelist);
+		const notWhitelisted = addedTags.filter(tag => !whitelistSet.has(tag));
+		// Skip whitelist enforcement for ActivityPub/remote users (uid is a URI or 0)
+		const isRemoteUser = activitypub.helpers.isUri(uid) || uid === 0;
+		if (!isAdminOrMod && !isRemoteUser) {
+			if (!whitelist.length && addedTags.length) {
+				throw new Error('[[error:tag-not-allowed]]');
+			}
+			if (notWhitelisted.length) {
+				throw new Error('[[error:tag-not-allowed]]');
+			}
+		} else if (notWhitelisted.length && !isRemoteUser) {
+			await categories.addToTagWhitelist(cid, notWhitelisted);
 		}
 	};
 

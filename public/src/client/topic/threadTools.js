@@ -144,7 +144,7 @@ define('forum/topic/threadTools', [
 
 		topicContainer.on('click', '[component="topic/tag"]', function () {
 			require(['forum/topic/tag'], function (tag) {
-				tag.init([ajaxify.data], ajaxify.data.tagWhitelist);
+				tag.init([ajaxify.data], ajaxify.data.tagWhitelist, ajaxify.data.canManageTagWhitelist);
 			});
 		});
 

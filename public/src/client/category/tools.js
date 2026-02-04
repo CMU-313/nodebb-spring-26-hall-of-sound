@@ -124,7 +124,7 @@ define('forum/category/tools', [
 			}
 			const topics = await Promise.all(tids.map(tid => api.get(`/topics/${tid}`)));
 			require(['forum/topic/tag'], function (tag) {
-				tag.init(topics, ajaxify.data.tagWhitelist, onCommandComplete);
+				tag.init(topics, ajaxify.data.tagWhitelist, ajaxify.data.canManageTagWhitelist, onCommandComplete);
 			});
 		});
 

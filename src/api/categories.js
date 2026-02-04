@@ -56,11 +56,19 @@ categoriesAPI.create = async function (caller, data) {
 };
 
 categoriesAPI.update = async function (caller, data) {
-	await hasAdminPrivilege(caller.uid);
 	if (!data) {
 		throw new Error('[[error:invalid-data]]');
 	}
 	const { cid, values } = data;
+	const isAdmin = await privileges.admin.can('admin:categories', caller.uid);
+	if (!isAdmin) {
+		const allowedKeys = ['tagWhitelist'];
+		const keys = Object.keys(values || {});
+		const isMod = utils.isNumber(cid) && await privileges.categories.isAdminOrMod(cid, caller.uid);
+		if (!isMod || !keys.length || keys.some(key => !allowedKeys.includes(key))) {
+			throw new Error('[[error:no-privileges]]');
+		}
+	}
 
 	const payload = {};
 	payload[cid] = values;

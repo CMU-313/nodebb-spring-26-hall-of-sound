@@ -14,15 +14,20 @@ module.exports = function (SocketTopics) {
 		}
 
 		const systemTags = (meta.config.systemTags || '').split(',');
-		const [tagWhitelist, isPrivileged] = await Promise.all([
+		const [tagWhitelist, isAdminOrMod] = await Promise.all([
 			utils.isNumber(data.cid) ? categories.getTagWhitelist([data.cid]) : [],
-			user.isPrivileged(socket.uid),
+			utils.isNumber(data.cid) ?
+				privileges.categories.isAdminOrMod(data.cid, socket.uid) :
+				user.isPrivileged(socket.uid),
 		]);
-		return isPrivileged ||
-			(
-				!systemTags.includes(data.tag) &&
-				(!tagWhitelist[0].length || tagWhitelist[0].includes(data.tag))
-			);
+		if (isAdminOrMod) {
+			return true;
+		}
+		const whitelist = Array.isArray(tagWhitelist[0]) ? tagWhitelist[0] : [];
+		if (!whitelist.length) {
+			return false;
+		}
+		return !systemTags.includes(data.tag) && whitelist.includes(data.tag);
 	};
 
 	SocketTopics.canRemoveTag = async function (socket, data) {
