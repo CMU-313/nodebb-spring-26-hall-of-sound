@@ -39,6 +39,10 @@ module.exports = function (Posts) {
 		if (data.handle && !parseInt(uid, 10)) {
 			postData.handle = data.handle;
 		}
+		// Reply type for question topics: 'answer' or 'comment' (only on replies, not main post)
+		if (!isMain && (data.replyType === 'answer' || data.replyType === 'comment')) {
+			postData.replyType = data.replyType;
+		}
 		if (_activitypub) {
 			if (_activitypub.url) {
 				postData.url = _activitypub.url;

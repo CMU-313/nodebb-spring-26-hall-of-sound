@@ -66,6 +66,12 @@ define('quickreply', [
 				handle: undefined,
 				content: replyMsg,
 			};
+			if (ajaxify.data.topicType === 'question') {
+				const replyTypeEl = document.querySelector('[component="topic/quickreply/reply-type"] input[name="replyType"]:checked');
+				if (replyTypeEl) {
+					replyData.replyType = replyTypeEl.value;
+				}
+			}
 			const replyLen = replyMsg.length;
 			if (replyLen < parseInt(config.minimumPostLength, 10)) {
 				return alerts.error('[[error:content-too-short, ' + config.minimumPostLength + ']]');

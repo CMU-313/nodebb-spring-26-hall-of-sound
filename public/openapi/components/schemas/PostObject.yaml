@@ -11,6 +11,13 @@ PostObject:
       type: number
       description: The post that this post is in reply to
       nullable: true
+    replyType:
+      type: string
+      description: For replies in question topics only — either "answer" or "comment"
+      enum:
+        - answer
+        - comment
+      nullable: true
     url:
       type: string
       description: |
