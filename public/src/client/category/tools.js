@@ -128,6 +128,49 @@ define('forum/category/tools', [
 			});
 		});
 
+		components.get('category/manage-tags').on('click', async function () {
+			let manageTagsModal;
+			const html = await app.parseAndTranslate('modals/tag-topic', {
+				modalTitle: '[[category:manage-tag-whitelist]]',
+				commitLabel: '[[global:save]]',
+				tagWhitelist: [],
+				topics: [{
+					title: '[[category:tag-whitelist]]',
+				}],
+			});
+			manageTagsModal = $(html);
+			$('body').append(manageTagsModal);
+
+			const modalTags = manageTagsModal.find('.tags');
+			modalTags.tagsinput({
+				tagClass: 'badge bg-info',
+				confirmKeys: [13, 44],
+				trimValue: true,
+			});
+
+			(ajaxify.data.tagWhitelist || []).forEach(tag => modalTags.tagsinput('add', tag));
+
+			function closeModal() {
+				if (manageTagsModal) {
+					manageTagsModal.remove();
+					manageTagsModal = null;
+				}
+			}
+
+			manageTagsModal.find('#tag-topic-cancel').on('click', closeModal);
+			manageTagsModal.find('#tag-topic-commit').on('click', function () {
+				const items = modalTags.tagsinput('items') || [];
+				api.put(`/categories/${ajaxify.data.cid}`, {
+					tagWhitelist: items.join(','),
+				}).then(function () {
+					ajaxify.data.tagWhitelist = items;
+					alerts.success('[[global:changes-saved]]');
+					closeModal();
+				}).catch(alerts.error);
+			});
+			return false;
+		});
+
 		CategoryTools.removeListeners();
 		socket.on('event:topic_deleted', setDeleteState);
 		socket.on('event:topic_restored', setDeleteState);

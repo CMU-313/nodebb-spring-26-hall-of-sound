@@ -70,9 +70,28 @@ categoriesAPI.update = async function (caller, data) {
 		}
 	}
 
+	// Track removed tags from whitelist to remove from topics
+	let removedTags = [];
+	if (values && values.tagWhitelist !== undefined) {
+		const [oldWhitelist] = await categories.getTagWhitelist([cid]);
+		const oldTags = Array.isArray(oldWhitelist) ? oldWhitelist : [];
+		const newTags = values.tagWhitelist ? values.tagWhitelist.split(',').map(t => t.trim()).filter(Boolean) : [];
+		removedTags = oldTags.filter(tag => !newTags.includes(tag));
+	}
+
 	const payload = {};
 	payload[cid] = values;
 	await categories.update(payload);
+
+	// Remove tags from all topics in category if tags were removed from whitelist
+	if (removedTags.length) {
+		const db = require('../database');
+		const tids = await db.getSortedSetMembers(`cid:${cid}:tids`);
+		if (tids.length) {
+			await topics.removeTags(removedTags, tids);
+		}
+	}
+
 	activitypub.out.update.category(cid); // background
 };
 
