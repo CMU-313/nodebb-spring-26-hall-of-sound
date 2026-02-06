@@ -83,3 +83,5 @@ dump.rdb
 .history/
 build/
 build_old/
+CLAUDE.md
+Feature_Plan.md
