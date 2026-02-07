@@ -48,6 +48,14 @@ post:
               example: This is a test reply
             toPid:
               type: number
+            replyType:
+              type: string
+              description: |
+                For question topics only. The type of reply — either "answer" or "comment".
+                Ignored for non-question topics. Defaults to "comment" if omitted.
+              enum:
+                - answer
+                - comment
           required:
             - content
   responses:
