@@ -1,13 +1,19 @@
 {
-  "id": "nodebb-plugin-topic-type",
-  "name": "Topic Type Selector",
-  "description": "Adds Question/Note radio buttons to the topic composer so that topicType is sent with new topic creation",
-  "version": "1.0.0",
-  "library": "./library.js",
-  "scripts": [
-    "static/lib/main.js"
-  ],
-  "hooks": [
-    { "hook": "static:app.load", "method": "init" }
-  ]
+	"id": "nodebb-plugin-topic-type",
+	"name": "Topic Type Selector",
+	"description": "Adds Question/Note radio buttons to the topic composer and Answered/Unanswered filter for question lists",
+	"version": "1.0.0",
+	"library": "./library.js",
+	"scripts": ["static/lib/main.js"],
+	"hooks": [
+		{ "hook": "static:app.load", "method": "init" },
+		{ "hook": "filter:category.topics.prepare", "method": "filterCategoryTopicsPrepare" },
+		{ "hook": "filter:categories.buildTopicsSortedSet", "method": "filterCategoriesBuildTopicsSortedSet" },
+		{ "hook": "action:topic.save", "method": "onTopicSave" },
+		{ "hook": "action:post.save", "method": "onPostSave" },
+		{ "hook": "action:post.edit", "method": "onPostEdit" },
+		{ "hook": "action:post.delete", "method": "onPostDelete" },
+		{ "hook": "action:post.restore", "method": "onPostRestore" },
+		{ "hook": "action:posts.purge", "method": "onPostsPurge" }
+	]
 }

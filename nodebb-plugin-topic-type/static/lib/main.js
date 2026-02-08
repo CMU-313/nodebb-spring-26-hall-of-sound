@@ -125,9 +125,82 @@
 		injectTopicTypeSelector(data.postContainer, data.composerData);
 	});
 
+	// ── Answered/Unanswered filter dropdown (category question list only) ─
+	function isCategoryQuestionsPage() {
+		if (typeof ajaxify === 'undefined' || !ajaxify.data) {
+			return false;
+		}
+		var t = ajaxify.data.template || {};
+		if (!t.category && !t.world) {
+			return false;
+		}
+		var qs = (window.location.search || '').slice(1);
+		var tagLabel = (ajaxify.data.selectedTag && ajaxify.data.selectedTag.label) || '';
+		var tagValue = (ajaxify.data.selectedTags && ajaxify.data.selectedTags[0]) || '';
+		if (qs.indexOf('tag=Question') !== -1 || tagLabel === 'Question' || tagValue === 'Question') {
+			return true;
+		}
+		return false;
+	}
+
+	function getAnswerStatusFromUrl() {
+		var match = (window.location.search || '').match(/[?&]answerStatus=([^&]+)/);
+		return match ? decodeURIComponent(match[1]) : 'all';
+	}
+
+	function buildUrlWithAnswerStatus(answerStatus) {
+		var params = new URLSearchParams(window.location.search || '');
+		if (answerStatus === 'all') {
+			params.delete('answerStatus');
+		} else {
+			params.set('answerStatus', answerStatus);
+		}
+		params.delete('page');
+		params.set('page', '1');
+		var query = params.toString();
+		var base = window.location.pathname || '';
+		return query ? base + '?' + query : base;
+	}
+
+	function injectAnswerStatusDropdown() {
+		if (!isCategoryQuestionsPage()) {
+			return;
+		}
+		var container = document.querySelector('[component="category/controls"]');
+		if (!container || container.querySelector('[data-component="topic-type-answer-status"]')) {
+			return;
+		}
+		var current = getAnswerStatusFromUrl();
+		var labels = { all: 'All', answered: 'Answered', unanswered: 'Unanswered' };
+		var html = [
+			'<div class="btn-group bottom-sheet" data-component="topic-type-answer-status">',
+			'  <button class="btn btn-ghost btn-sm ff-secondary d-flex gap-2 align-items-center dropdown-toggle" data-bs-toggle="dropdown" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Filter by answer status">',
+			'    <span class="d-none d-md-inline fw-semibold">' + (labels[current] || 'All') + '</span>',
+			'  </button>',
+			'  <ul class="dropdown-menu p-1 text-sm" role="menu">',
+			['all', 'answered', 'unanswered'].map(function (value) {
+				var active = current === value ? ' active' : '';
+				var href = buildUrlWithAnswerStatus(value);
+				return '<li><a class="dropdown-item rounded-1' + active + '" href="' + href + '" data-answer-status="' + value + '" role="menuitem">' + labels[value] + '</a></li>';
+			}).join(''),
+			'  </ul>',
+			'</div>'
+		].join('');
+		container.insertAdjacentHTML('afterbegin', html);
+
+		container.querySelectorAll('[data-component="topic-type-answer-status"] [data-answer-status]').forEach(function (link) {
+			link.addEventListener('click', function (e) {
+				e.preventDefault();
+				var val = link.getAttribute('data-answer-status');
+				ajaxify.go(buildUrlWithAnswerStatus(val));
+			});
+		});
+	}
+
 	// ── Hook: topic page loaded (inject reply-type selector + badges) ────
 	$(window).on('action:ajaxify.end', function () {
 		onTopicPageReady();
+		injectAnswerStatusDropdown();
 	});
 
 	// ── Hook: new posts added (e.g. nested replies, new post) ─────────────
