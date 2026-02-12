@@ -125,22 +125,13 @@
 		injectTopicTypeSelector(data.postContainer, data.composerData);
 	});
 
-	// ── Answered/Unanswered filter dropdown (category question list only) ─
-	function isCategoryQuestionsPage() {
+	// ── Answered/Unanswered filter (always on category/world; selecting switches to Question + filter) ─
+	function isCategoryOrWorldPage() {
 		if (typeof ajaxify === 'undefined' || !ajaxify.data) {
 			return false;
 		}
 		var t = ajaxify.data.template || {};
-		if (!t.category && !t.world) {
-			return false;
-		}
-		var qs = (window.location.search || '').slice(1);
-		var tagLabel = (ajaxify.data.selectedTag && ajaxify.data.selectedTag.label) || '';
-		var tagValue = (ajaxify.data.selectedTags && ajaxify.data.selectedTags[0]) || '';
-		if (qs.indexOf('tag=Question') !== -1 || tagLabel === 'Question' || tagValue === 'Question') {
-			return true;
-		}
-		return false;
+		return !!(t.category || t.world);
 	}
 
 	function getAnswerStatusFromUrl() {
@@ -148,8 +139,13 @@
 		return match ? decodeURIComponent(match[1]) : 'all';
 	}
 
+	/**
+	 * Build URL for answer-status filter. Uses same codepath as tag filter: always sets tag=Question
+	 * so topic type is "question". All = all questions (no answerStatus); Answered/Unanswered add that param.
+	 */
 	function buildUrlWithAnswerStatus(answerStatus) {
 		var params = new URLSearchParams(window.location.search || '');
+		params.set('tag', 'Question');
 		if (answerStatus === 'all') {
 			params.delete('answerStatus');
 		} else {
@@ -163,7 +159,7 @@
 	}
 
 	function injectAnswerStatusDropdown() {
-		if (!isCategoryQuestionsPage()) {
+		if (!isCategoryOrWorldPage()) {
 			return;
 		}
 		var container = document.querySelector('[component="category/controls"]');
