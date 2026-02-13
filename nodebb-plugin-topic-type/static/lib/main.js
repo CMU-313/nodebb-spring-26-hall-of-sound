@@ -197,10 +197,76 @@
 		});
 	}
 
+	// ── Topic bookmarks: button on topic page + My Bookmarks in menu ─────
+	function getApiBase() {
+		var base = (typeof config !== 'undefined' && config.relative_path) ? config.relative_path : '';
+		return base + '/api/bookmarks';
+	}
+
+	function injectBookmarkButton() {
+		if (typeof ajaxify === 'undefined' || !ajaxify.data || !ajaxify.data.tid) return;
+		if (!ajaxify.data.template || !ajaxify.data.template.topic) return;
+		if (!app.user.uid || parseInt(app.user.uid, 10) <= 0) return;
+		var container = document.querySelector('[component="topic/watch"]');
+		if (!container || document.querySelector('[data-component="topic-type-bookmark"]')) return;
+		var tid = ajaxify.data.tid;
+		var api = getApiBase();
+		var html = '<button type="button" class="btn btn-ghost btn-sm ff-secondary d-flex gap-2 align-items-center topic-type-bookmark-btn" data-component="topic-type-bookmark" data-tid="' + tid + '" title="Bookmark topic" aria-label="Bookmark topic">' +
+			'<i class="fa fa-bookmark-o topic-type-bookmark-icon" aria-hidden="true"></i></button>';
+		container.insertAdjacentHTML('afterend', html);
+		var btn = document.querySelector('[data-component="topic-type-bookmark"][data-tid="' + tid + '"]');
+		var icon = btn ? btn.querySelector('.topic-type-bookmark-icon') : null;
+		function setState(bookmarked) {
+			if (!icon) return;
+			icon.className = bookmarked ? 'fa fa-bookmark topic-type-bookmark-icon text-primary' : 'fa fa-bookmark-o topic-type-bookmark-icon';
+		}
+		function toggle() {
+			if (!btn || btn.disabled) return;
+			var isCurrentlyBookmarked = icon && icon.classList.contains('fa-bookmark');
+			var method = isCurrentlyBookmarked ? 'DELETE' : 'POST';
+			btn.disabled = true;
+			$.ajax({
+				url: api + '/' + tid,
+				type: method,
+				headers: { 'x-csrf-token': config.csrf_token },
+				success: function () {
+					setState(!isCurrentlyBookmarked);
+				},
+				error: function () {
+					require(['alerts'], function (alerts) {
+						alerts.error('Could not update bookmark.');
+					});
+				},
+				complete: function () {
+					btn.disabled = false;
+				}
+			});
+		}
+		$.get(api + '/' + tid).then(function (data) {
+			if (data && typeof data.bookmarked !== 'undefined') setState(data.bookmarked);
+		}).fail(function () {
+			setState(false);
+		});
+		if (btn) btn.addEventListener('click', function (e) { e.preventDefault(); toggle(); });
+	}
+
+	function injectMyBookmarksMenu() {
+		if (!app.user.uid || parseInt(app.user.uid, 10) <= 0) return;
+		var list = document.querySelector('[component="header/usercontrol"]');
+		if (!list || list.querySelector('[data-component="topic-type-my-bookmarks"]')) return;
+		var relativePath = (typeof config !== 'undefined' && config.relative_path) ? config.relative_path : '';
+		var link = '<li data-component="topic-type-my-bookmarks"><a class="dropdown-item rounded-1 d-flex align-items-center gap-2" href="' + relativePath + '/bookmarks" role="menuitem" data-ajaxify="false"><i class="fa fa-bookmark flex-shrink-0"></i><span>My Bookmarks</span></a></li>';
+		var first = list.querySelector('li');
+		if (first) first.insertAdjacentHTML('beforebegin', link);
+		else list.insertAdjacentHTML('beforeend', link);
+	}
+
 	// ── Hook: topic page loaded (inject reply-type selector + badges) ────
 	$(window).on('action:ajaxify.end', function () {
 		onTopicPageReady();
 		injectAnswerStatusDropdown();
+		injectBookmarkButton();
+		injectMyBookmarksMenu();
 	});
 
 	// ── Hook: new posts added (e.g. nested replies, new post) ─────────────
