@@ -6,7 +6,9 @@
  * 1. Injects radio buttons (Question / Note) into the composer when creating a new topic.
  * 2. Reads the selected value and adds `topicType` to the API payload on submit.
  * 3. On question topic pages: injects Answer/Comment selector into quick reply (core quickreply.js reads it and sends replyType).
- * 4. On question topic pages: injects Answer/Comment badges into each post header (no .tpl changes).
+ * 4. On question topic pages: injects Answer/Comment selector into the main reply composer (filter:composer.submit sends replyType).
+ * 5. On question topic pages: injects Answer/Comment badges into each post header (no .tpl changes).
+ * Note: For note topics, reply type is always comment and no selector is shown.
  */
 (function () {
 	// ── HTML for the composer topic type radio group ─────────────────────
@@ -38,6 +40,19 @@
 		'</div>',
 	].join('\n');
 
+	// ── HTML for main composer reply-type selector (question topics only) ─
+	var composerReplyTypeHTML = [
+		'<div class="composer-reply-type d-flex align-items-center gap-2 flex-wrap" data-component="composer/reply-type-wrapper">',
+		'  <span class="text-muted small">Post as</span>',
+		'  <div component="composer/reply-type" class="btn-group btn-group-sm" role="group">',
+		'    <input type="radio" class="btn-check" name="composerReplyType" id="composer-reply-type-answer" value="answer" autocomplete="off">',
+		'    <label class="btn btn-outline-primary" for="composer-reply-type-answer">Answer</label>',
+		'    <input type="radio" class="btn-check" name="composerReplyType" id="composer-reply-type-comment" value="comment" autocomplete="off" checked>',
+		'    <label class="btn btn-outline-primary" for="composer-reply-type-comment">Comment</label>',
+		'  </div>',
+		'</div>',
+	].join('\n');
+
 	// ── Inject topic type radio buttons when the composer opens ───────────
 	function injectTopicTypeSelector(postContainer, composerData) {
 		if (!composerData || composerData.action !== 'topics.post') {
@@ -49,6 +64,29 @@
 		var titleEl = postContainer.find('[data-component="composer/title"]');
 		if (titleEl.length) {
 			titleEl.after(radioHTML);
+		}
+	}
+
+	// ── Inject Answer/Comment selector into main reply composer (question topics only) ─
+	function injectComposerReplyTypeSelector(postContainer, composerData) {
+		if (!composerData || composerData.action !== 'posts.reply') {
+			return;
+		}
+		// Only show selector for question topics; note topics default to comment with no option
+		if (typeof ajaxify === 'undefined' || !ajaxify.data || ajaxify.data.topicType !== 'question') {
+			return;
+		}
+		if (postContainer.find('[data-component="composer/reply-type-wrapper"]').length) {
+			return;
+		}
+		var titleEl = postContainer.find('[data-component="composer/title"]');
+		if (titleEl.length) {
+			titleEl.after(composerReplyTypeHTML);
+		} else {
+			var firstBody = postContainer.find('.card-body').first();
+			if (firstBody.length) {
+				firstBody.prepend(composerReplyTypeHTML);
+			}
 		}
 	}
 
@@ -123,6 +161,7 @@
 	// ── Hook: composer loaded ────────────────────────────────────────────
 	$(window).on('action:composer.loaded', function (_ev, data) {
 		injectTopicTypeSelector(data.postContainer, data.composerData);
+		injectComposerReplyTypeSelector(data.postContainer, data.composerData);
 	});
 
 	// ── Answered/Unanswered filter (always on category/world; selecting switches to Question + filter) ─
@@ -216,6 +255,12 @@
 				if (selected) {
 					hookData.composerData.topicType = selected;
 				}
+			}
+			if (hookData.action === 'posts.reply') {
+				// Question topics: read from injected selector; note topics: no selector, default to comment
+				// Match [component="..."] (theme convention), not [data-component="..."]
+				var replyTypeEl = hookData.composerEl.find('[component="composer/reply-type"] input[name="composerReplyType"]:checked');
+				hookData.composerData.replyType = replyTypeEl.length ? replyTypeEl.val() : 'comment';
 			}
 			return hookData;
 		});
