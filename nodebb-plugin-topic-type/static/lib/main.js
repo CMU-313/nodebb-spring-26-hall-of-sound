@@ -197,7 +197,7 @@
 		});
 	}
 
-	// ── Topic bookmarks: button on topic page + My Bookmarks in menu ─────
+	// ── Topic bookmarks: button on topic page ───────────────────────────
 	function getApiBase() {
 		var base = (typeof config !== 'undefined' && config.relative_path) ? config.relative_path : '';
 		return base + '/api/bookmarks';
@@ -250,23 +250,11 @@
 		if (btn) btn.addEventListener('click', function (e) { e.preventDefault(); toggle(); });
 	}
 
-	function injectMyBookmarksMenu() {
-		if (!app.user.uid || parseInt(app.user.uid, 10) <= 0) return;
-		var list = document.querySelector('[component="header/usercontrol"]');
-		if (!list || list.querySelector('[data-component="topic-type-my-bookmarks"]')) return;
-		var relativePath = (typeof config !== 'undefined' && config.relative_path) ? config.relative_path : '';
-		var link = '<li data-component="topic-type-my-bookmarks"><a class="dropdown-item rounded-1 d-flex align-items-center gap-2" href="' + relativePath + '/bookmarks" role="menuitem" data-ajaxify="false"><i class="fa fa-bookmark flex-shrink-0"></i><span>My Bookmarks</span></a></li>';
-		var first = list.querySelector('li');
-		if (first) first.insertAdjacentHTML('beforebegin', link);
-		else list.insertAdjacentHTML('beforeend', link);
-	}
-
 	// ── Hook: topic page loaded (inject reply-type selector + badges) ────
 	$(window).on('action:ajaxify.end', function () {
 		onTopicPageReady();
 		injectAnswerStatusDropdown();
 		injectBookmarkButton();
-		injectMyBookmarksMenu();
 	});
 
 	// ── Hook: new posts added (e.g. nested replies, new post) ─────────────
