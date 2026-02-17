@@ -6,8 +6,12 @@
  * 1. Injects radio buttons (Question / Note) into the composer when creating a new topic.
  * 2. Reads the selected value and adds `topicType` to the API payload on submit.
  * 3. On question topic pages: injects Answer/Comment selector into quick reply (core quickreply.js reads it and sends replyType).
- * 4. On question topic pages: injects Answer/Comment badges into each post header (no .tpl changes).
+ * 4. On question topic pages: injects Answer/Comment selector into the main reply composer (filter:composer.submit sends replyType).
+ * 5. On question topic pages: injects Answer/Comment badges into each post header (no .tpl changes), including new replies without refresh.
+ * 6. On question topic pages: injects a reply filter dropdown (All / Answers / Comments) above the post list (no .tpl changes).
+ * Note: For note topics, reply type is always comment and no selector is shown.
  */
+
 (function () {
 	// ── HTML for the composer topic type radio group ─────────────────────
 	var radioHTML = [
@@ -38,6 +42,19 @@
 		'</div>',
 	].join('\n');
 
+	// ── HTML for main composer reply-type selector (question topics only) ─
+	var composerReplyTypeHTML = [
+		'<div class="composer-reply-type d-flex align-items-center gap-2 flex-wrap" data-component="composer/reply-type-wrapper">',
+		'  <span class="text-muted small">Post as</span>',
+		'  <div component="composer/reply-type" class="btn-group btn-group-sm" role="group">',
+		'    <input type="radio" class="btn-check" name="composerReplyType" id="composer-reply-type-answer" value="answer" autocomplete="off">',
+		'    <label class="btn btn-outline-primary" for="composer-reply-type-answer">Answer</label>',
+		'    <input type="radio" class="btn-check" name="composerReplyType" id="composer-reply-type-comment" value="comment" autocomplete="off" checked>',
+		'    <label class="btn btn-outline-primary" for="composer-reply-type-comment">Comment</label>',
+		'  </div>',
+		'</div>',
+	].join('\n');
+
 	// ── Inject topic type radio buttons when the composer opens ───────────
 	function injectTopicTypeSelector(postContainer, composerData) {
 		if (!composerData || composerData.action !== 'topics.post') {
@@ -49,6 +66,29 @@
 		var titleEl = postContainer.find('[data-component="composer/title"]');
 		if (titleEl.length) {
 			titleEl.after(radioHTML);
+		}
+	}
+
+	// ── Inject Answer/Comment selector into main reply composer (question topics only) ─
+	function injectComposerReplyTypeSelector(postContainer, composerData) {
+		if (!composerData || composerData.action !== 'posts.reply') {
+			return;
+		}
+		// Only show selector for question topics; note topics default to comment with no option
+		if (typeof ajaxify === 'undefined' || !ajaxify.data || ajaxify.data.topicType !== 'question') {
+			return;
+		}
+		if (postContainer.find('[data-component="composer/reply-type-wrapper"]').length) {
+			return;
+		}
+		var titleEl = postContainer.find('[data-component="composer/title"]');
+		if (titleEl.length) {
+			titleEl.after(composerReplyTypeHTML);
+		} else {
+			var firstBody = postContainer.find('.card-body').first();
+			if (firstBody.length) {
+				firstBody.prepend(composerReplyTypeHTML);
+			}
 		}
 	}
 
@@ -72,43 +112,139 @@
 		}
 	}
 
-	// ── Inject Answer/Comment badges into post headers (question topics) ───
-	function injectReplyTypeBadges() {
+	// ── Inject Answer/Comment badge for a single post (by pid + replyType) ─
+	function injectReplyTypeBadgeForPost(post) {
 		if (typeof ajaxify === 'undefined' || !ajaxify.data || ajaxify.data.topicType !== 'question') {
 			return;
 		}
-		var posts = ajaxify.data.posts;
-		if (!Array.isArray(posts)) {
+		if (!post || !post.pid || (post.replyType !== 'answer' && post.replyType !== 'comment')) {
 			return;
 		}
-		posts.forEach(function (post) {
-			if (!post || !post.pid || (post.replyType !== 'answer' && post.replyType !== 'comment')) {
-				return;
-			}
-			var postEl = document.querySelector('[component="post"][data-pid="' + post.pid + '"]');
-			if (!postEl) {
-				return;
-			}
-			var header = postEl.querySelector('.post-header');
-			if (!header) {
-				return;
-			}
-			var firstRow = header.querySelector('.d-flex.gap-1.flex-wrap');
-			if (!firstRow) {
-				firstRow = header.firstElementChild;
-			}
-			if (!firstRow) {
-				return;
-			}
-			if (firstRow.querySelector('[data-topic-type-reply-badge]')) {
-				return;
-			}
-			var badge = document.createElement('span');
-			badge.setAttribute('data-topic-type-reply-badge', '1');
-			badge.className = 'badge rounded-1 me-1 ' + (post.replyType === 'answer' ? 'bg-success' : 'bg-secondary');
-			badge.textContent = post.replyType === 'answer' ? 'Answer' : 'Comment';
-			firstRow.insertBefore(badge, firstRow.firstChild);
+
+		var postEl = document.querySelector('[component="post"][data-pid="' + post.pid + '"]');
+		if (!postEl) {
+			return;
+		}
+
+		// Needed for reply filtering (All / Answers / Comments)
+		postEl.setAttribute('data-reply-type', post.replyType);
+
+		var header = postEl.querySelector('.post-header');
+		if (!header) {
+			return;
+		}
+		var firstRow = header.querySelector('.d-flex.gap-1.flex-wrap');
+		if (!firstRow) {
+			firstRow = header.firstElementChild;
+		}
+		if (!firstRow) {
+			return;
+		}
+		if (firstRow.querySelector('[data-topic-type-reply-badge]')) {
+			return;
+		}
+		var badge = document.createElement('span');
+		badge.setAttribute('data-topic-type-reply-badge', '1');
+		badge.className = 'badge rounded-1 me-1 ' + (post.replyType === 'answer' ? 'bg-success' : 'bg-secondary');
+		badge.textContent = post.replyType === 'answer' ? 'Answer' : 'Comment';
+		firstRow.insertBefore(badge, firstRow.firstChild);
+	}
+
+	// ── Inject Answer/Comment badges into post headers (question topics) ───
+	function injectReplyTypeBadges(posts) {
+		if (typeof ajaxify === 'undefined' || !ajaxify.data || ajaxify.data.topicType !== 'question') {
+			return;
+		}
+		var list = Array.isArray(posts) ? posts : ajaxify.data.posts;
+		if (!Array.isArray(list)) {
+			return;
+		}
+		list.forEach(function (post) {
+			injectReplyTypeBadgeForPost(post);
 		});
+	}
+
+
+	// ── Reply filter (All / Answers / Comments) on question topic pages ───
+	var REPLY_FILTER_KEY = 'topicReplyFilter';
+
+	function getReplyFilter() {
+		try {
+			var tid = (typeof ajaxify !== 'undefined' && ajaxify.data && ajaxify.data.tid) ? String(ajaxify.data.tid) : '';
+			var raw = tid ? (sessionStorage.getItem(REPLY_FILTER_KEY + '_' + tid) || 'all') : 'all';
+			return (raw === 'answer' || raw === 'comment') ? raw : 'all';
+		} catch (e) {
+			return 'all';
+		}
+	}
+
+	function setReplyFilter(value) {
+		try {
+			var tid = (typeof ajaxify !== 'undefined' && ajaxify.data && ajaxify.data.tid) ? String(ajaxify.data.tid) : '';
+			if (tid) {
+				sessionStorage.setItem(REPLY_FILTER_KEY + '_' + tid, value);
+			}
+		} catch (e) {}
+	}
+
+	function applyReplyFilter() {
+		if (typeof ajaxify === 'undefined' || !ajaxify.data || ajaxify.data.topicType !== 'question') {
+			return;
+		}
+		var filter = getReplyFilter();
+		var topicEl = document.querySelector('[component="topic"]');
+		if (!topicEl) {
+			return;
+		}
+		var postEls = topicEl.querySelectorAll('[component="post"]');
+		postEls.forEach(function (el, index) {
+			var replyType = el.getAttribute('data-reply-type');
+			var isFirstPost = index === 0;
+			if (isFirstPost || !replyType) {
+				el.style.display = '';
+				el.style.visibility = '';
+				return;
+			}
+			var show = filter === 'all' || replyType === filter;
+			el.style.display = show ? '' : 'none';
+			el.style.visibility = show ? '' : 'hidden';
+		});
+	}
+
+	function injectReplyFilterDropdown() {
+		if (typeof ajaxify === 'undefined' || !ajaxify.data || ajaxify.data.topicType !== 'question') {
+			return;
+		}
+		var topicList = document.querySelector('[component="topic"]');
+		if (!topicList || document.querySelector('[data-component="topic-type-reply-filter"]')) {
+			return;
+		}
+		var current = getReplyFilter();
+		var labels = { all: 'All', answer: 'Answers', comment: 'Comments' };
+		var html = [
+			'<div class="d-flex align-items-center gap-2 py-2" data-component="topic-type-reply-filter">',
+			'  <label class="text-muted small mb-0">Filter replies</label>',
+			'  <div class="btn-group btn-group-sm" role="group">',
+			'    <select class="form-select form-select-sm" style="width: auto; min-width: 7rem;" data-reply-filter-select aria-label="Filter by reply type">',
+			['all', 'answer', 'comment'].map(function (value) {
+				var selected = current === value ? ' selected' : '';
+				return '<option value="' + value + '"' + selected + '>' + (labels[value] || value) + '</option>';
+			}).join(''),
+			'    </select>',
+			'  </div>',
+			'</div>'
+		].join('');
+		topicList.insertAdjacentHTML('beforebegin', html);
+
+		var selectEl = document.querySelector('[data-component="topic-type-reply-filter"] [data-reply-filter-select]');
+		if (selectEl) {
+			selectEl.addEventListener('change', function () {
+				var val = selectEl.value;
+				setReplyFilter(val);
+				applyReplyFilter();
+			});
+		}
+		applyReplyFilter();
 	}
 
 	// ── Run topic-page logic (quick reply selector + badges) ──────────────
@@ -118,29 +254,24 @@
 		}
 		injectQuickReplyTypeSelector();
 		injectReplyTypeBadges();
+		if (ajaxify.data.topicType === 'question') {
+			injectReplyFilterDropdown();
+		}
 	}
 
 	// ── Hook: composer loaded ────────────────────────────────────────────
 	$(window).on('action:composer.loaded', function (_ev, data) {
 		injectTopicTypeSelector(data.postContainer, data.composerData);
+		injectComposerReplyTypeSelector(data.postContainer, data.composerData);
 	});
 
-	// ── Answered/Unanswered filter dropdown (category question list only) ─
-	function isCategoryQuestionsPage() {
+	// ── Answered/Unanswered filter (always on category/world; selecting switches to Question + filter) ─
+	function isCategoryOrWorldPage() {
 		if (typeof ajaxify === 'undefined' || !ajaxify.data) {
 			return false;
 		}
 		var t = ajaxify.data.template || {};
-		if (!t.category && !t.world) {
-			return false;
-		}
-		var qs = (window.location.search || '').slice(1);
-		var tagLabel = (ajaxify.data.selectedTag && ajaxify.data.selectedTag.label) || '';
-		var tagValue = (ajaxify.data.selectedTags && ajaxify.data.selectedTags[0]) || '';
-		if (qs.indexOf('tag=Question') !== -1 || tagLabel === 'Question' || tagValue === 'Question') {
-			return true;
-		}
-		return false;
+		return !!(t.category || t.world);
 	}
 
 	function getAnswerStatusFromUrl() {
@@ -148,8 +279,13 @@
 		return match ? decodeURIComponent(match[1]) : 'all';
 	}
 
+	/**
+	 * Build URL for answer-status filter. Uses same codepath as tag filter: always sets tag=Question
+	 * so topic type is "question". All = all questions (no answerStatus); Answered/Unanswered add that param.
+	 */
 	function buildUrlWithAnswerStatus(answerStatus) {
 		var params = new URLSearchParams(window.location.search || '');
+		params.set('tag', 'Question');
 		if (answerStatus === 'all') {
 			params.delete('answerStatus');
 		} else {
@@ -163,7 +299,7 @@
 	}
 
 	function injectAnswerStatusDropdown() {
-		if (!isCategoryQuestionsPage()) {
+		if (!isCategoryOrWorldPage()) {
 			return;
 		}
 		var container = document.querySelector('[component="category/controls"]');
@@ -257,25 +393,45 @@
 		injectBookmarkButton();
 	});
 
-	// ── Hook: new posts added (e.g. nested replies, new post) ─────────────
-	require(['hooks'], function (hooks) {
-		hooks.on('action:posts.loaded', function () {
-			injectReplyTypeBadges();
-		});
-		hooks.on('action:quickreply.success', function () {
-			setTimeout(injectReplyTypeBadges, 0);
-		});
-
-		hooks.on('filter:composer.submit', function (hookData) {
-			if (hookData.action === 'topics.post') {
-				var selected = hookData.composerEl
-					.find('input[name="topic-type"]:checked')
-					.val();
-				if (selected) {
-					hookData.composerData.topicType = selected;
+		// ── Hook: new posts added (e.g. nested replies, new post) ─────────────
+		require(['hooks'], function (hooks) {
+			hooks.on('action:posts.loaded', function (payload) {
+				// Use payload posts when present (new reply / load more) so reply-type badge appears without refresh
+				var posts = payload && payload.posts;
+				injectReplyTypeBadges(posts);
+				applyReplyFilter();
+			});
+	
+			hooks.on('action:quickreply.success', function (payload) {
+				if (payload && payload.data && payload.data.pid) {
+					setTimeout(function () {
+						injectReplyTypeBadgeForPost(payload.data);
+						applyReplyFilter();
+					}, 0);
+				} else {
+					setTimeout(function () {
+						injectReplyTypeBadges();
+						applyReplyFilter();
+					}, 0);
 				}
-			}
-			return hookData;
+			});
+	
+			hooks.on('filter:composer.submit', function (hookData) {
+				if (hookData.action === 'topics.post') {
+					var selected = hookData.composerEl
+						.find('input[name="topic-type"]:checked')
+						.val();
+					if (selected) {
+						hookData.composerData.topicType = selected;
+					}
+				}
+				if (hookData.action === 'posts.reply') {
+					// Question topics: read from injected selector; note topics: no selector, default to comment
+					// Match [component="..."] (theme convention), not [data-component="..."]
+					var replyTypeEl = hookData.composerEl.find('[component="composer/reply-type"] input[name="composerReplyType"]:checked');
+					hookData.composerData.replyType = replyTypeEl.length ? replyTypeEl.val() : 'comment';
+				}
+				return hookData;
+			});
 		});
-	});
-})();
+	})();
