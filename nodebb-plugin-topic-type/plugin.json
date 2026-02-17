@@ -1,7 +1,7 @@
 {
 	"id": "nodebb-plugin-topic-type",
 	"name": "Topic Type Selector",
-	"description": "Adds Question/Note radio buttons to the topic composer and Answered/Unanswered filter for question lists",
+	"description": "Adds Question/Note radio buttons to the topic composer, Answered/Unanswered filter for question lists, and All/Answers/Comments reply filter on question topic pages",
 	"version": "1.0.0",
 	"library": "./library.js",
 	"scripts": ["static/lib/main.js"],
