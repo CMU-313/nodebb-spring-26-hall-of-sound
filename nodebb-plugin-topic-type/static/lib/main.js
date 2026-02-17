@@ -110,42 +110,50 @@
 		}
 	}
 
-	// ── Inject Answer/Comment badges into post headers (question topics) ───
-	function injectReplyTypeBadges() {
+	// ── Inject Answer/Comment badge for a single post (by pid + replyType) ─
+	function injectReplyTypeBadgeForPost(post) {
 		if (typeof ajaxify === 'undefined' || !ajaxify.data || ajaxify.data.topicType !== 'question') {
 			return;
 		}
-		var posts = ajaxify.data.posts;
-		if (!Array.isArray(posts)) {
+		if (!post || !post.pid || (post.replyType !== 'answer' && post.replyType !== 'comment')) {
 			return;
 		}
-		posts.forEach(function (post) {
-			if (!post || !post.pid || (post.replyType !== 'answer' && post.replyType !== 'comment')) {
-				return;
-			}
-			var postEl = document.querySelector('[component="post"][data-pid="' + post.pid + '"]');
-			if (!postEl) {
-				return;
-			}
-			var header = postEl.querySelector('.post-header');
-			if (!header) {
-				return;
-			}
-			var firstRow = header.querySelector('.d-flex.gap-1.flex-wrap');
-			if (!firstRow) {
-				firstRow = header.firstElementChild;
-			}
-			if (!firstRow) {
-				return;
-			}
-			if (firstRow.querySelector('[data-topic-type-reply-badge]')) {
-				return;
-			}
-			var badge = document.createElement('span');
-			badge.setAttribute('data-topic-type-reply-badge', '1');
-			badge.className = 'badge rounded-1 me-1 ' + (post.replyType === 'answer' ? 'bg-success' : 'bg-secondary');
-			badge.textContent = post.replyType === 'answer' ? 'Answer' : 'Comment';
-			firstRow.insertBefore(badge, firstRow.firstChild);
+		var postEl = document.querySelector('[component="post"][data-pid="' + post.pid + '"]');
+		if (!postEl) {
+			return;
+		}
+		var header = postEl.querySelector('.post-header');
+		if (!header) {
+			return;
+		}
+		var firstRow = header.querySelector('.d-flex.gap-1.flex-wrap');
+		if (!firstRow) {
+			firstRow = header.firstElementChild;
+		}
+		if (!firstRow) {
+			return;
+		}
+		if (firstRow.querySelector('[data-topic-type-reply-badge]')) {
+			return;
+		}
+		var badge = document.createElement('span');
+		badge.setAttribute('data-topic-type-reply-badge', '1');
+		badge.className = 'badge rounded-1 me-1 ' + (post.replyType === 'answer' ? 'bg-success' : 'bg-secondary');
+		badge.textContent = post.replyType === 'answer' ? 'Answer' : 'Comment';
+		firstRow.insertBefore(badge, firstRow.firstChild);
+	}
+
+	// ── Inject Answer/Comment badges into post headers (question topics) ───
+	function injectReplyTypeBadges(posts) {
+		if (typeof ajaxify === 'undefined' || !ajaxify.data || ajaxify.data.topicType !== 'question') {
+			return;
+		}
+		var list = Array.isArray(posts) ? posts : ajaxify.data.posts;
+		if (!Array.isArray(list)) {
+			return;
+		}
+		list.forEach(function (post) {
+			injectReplyTypeBadgeForPost(post);
 		});
 	}
 
@@ -240,11 +248,17 @@
 
 	// ── Hook: new posts added (e.g. nested replies, new post) ─────────────
 	require(['hooks'], function (hooks) {
-		hooks.on('action:posts.loaded', function () {
-			injectReplyTypeBadges();
+		hooks.on('action:posts.loaded', function (payload) {
+			// Use payload posts when present (new reply / load more) so reply-type badge appears without refresh
+			var posts = payload && payload.posts;
+			injectReplyTypeBadges(posts);
 		});
-		hooks.on('action:quickreply.success', function () {
-			setTimeout(injectReplyTypeBadges, 0);
+		hooks.on('action:quickreply.success', function (payload) {
+			if (payload && payload.data && payload.data.pid) {
+				setTimeout(function () {
+					injectReplyTypeBadgeForPost(payload.data);
+				}, 0);
+			}
 		});
 
 		hooks.on('filter:composer.submit', function (hookData) {
