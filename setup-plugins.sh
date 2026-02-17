@@ -16,7 +16,7 @@ REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 echo "── Installing local plugins ──────────────────────────────"
 
-# 1. Install the topic-type plugin (Question/Note selector + Answer/Comment reply-type for question topics)
+# 1. Install the topic-type plugin (Question/Note selector + Answer/Comment reply-type for question topics: quick reply and main reply composer)
 echo "  → nodebb-plugin-topic-type"
 cd "$REPO_ROOT"
 npm install --save "./nodebb-plugin-topic-type"
