@@ -2,12 +2,17 @@
 
 const db = require.main.require('./src/database');
 const topics = require.main.require('./src/topics');
+const controllerHelpers = require.main.require('./src/controllers/helpers');
 
 const plugin = module.exports;
 
 const ANSWERED_SET_SUFFIX = ':tids:answered';
 const UNANSWERED_SET_SUFFIX = ':tids:unanswered';
 const SCORE = 1;
+
+function bookmarksSetKey(uid) {
+	return `uid:${uid}:bookmarks:tids`;
+}
 
 /**
  * Check whether the topic has any non-deleted answer posts (replyType === 'answer')
@@ -44,9 +49,99 @@ async function recomputeTopicAnswerStatus(tid) {
 	}
 }
 
-plugin.init = async function () {
-	// Client-side topic type and reply-type UI is in static/lib/main.js.
-	// Answered/unanswered sets and filter hooks are below.
+// ─── Topic bookmarks (per-user sorted set) ─────────────────────────────────
+
+function requireUid(req, res) {
+	if (!req.uid || parseInt(req.uid, 10) <= 0) {
+		if (res.locals.isAPI || (req.path && req.path.indexOf('/api') === 0)) {
+			return res.status(403).json({ error: 'Not allowed', status: { code: 'forbidden', message: 'Not allowed' } });
+		}
+		controllerHelpers.notAllowed(req, res);
+		return false;
+	}
+	return true;
+}
+
+plugin.bookmarksAdd = async function (req, res) {
+	if (!requireUid(req, res)) return;
+	const tid = req.params.tid;
+	const key = bookmarksSetKey(req.uid);
+	await db.sortedSetAdd(key, Date.now(), tid);
+	res.status(204).end();
+};
+
+plugin.bookmarksRemove = async function (req, res) {
+	if (!requireUid(req, res)) return;
+	const tid = req.params.tid;
+	const key = bookmarksSetKey(req.uid);
+	await db.sortedSetRemove(key, tid);
+	res.status(204).end();
+};
+
+plugin.bookmarksStatus = async function (req, res) {
+	if (!requireUid(req, res)) return;
+	const tid = req.params.tid;
+	const key = bookmarksSetKey(req.uid);
+	const bookmarked = await db.isSortedSetMember(key, tid);
+	res.status(200).json({ bookmarked: !!bookmarked });
+};
+
+plugin.bookmarksList = async function (req, res) {
+	if (!requireUid(req, res)) return;
+	const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+	const perPage = Math.min(50, Math.max(1, parseInt(req.query.perPage, 10) || 20));
+	const key = bookmarksSetKey(req.uid);
+	const total = await db.sortedSetCard(key);
+	const pageCount = Math.max(1, Math.ceil(total / perPage));
+	const start = (page - 1) * perPage;
+	const stop = start + perPage - 1;
+	const tids = await db.getSortedSetRevRange(key, start, stop);
+	const topicsData = tids.length ? await topics.getTopicsByTids(tids, { uid: req.uid }) : [];
+	const payload = {
+		topics: topicsData,
+		pagination: { page, pageCount, total, perPage },
+	};
+	await controllerHelpers.formatApiResponse(200, res, payload);
+};
+
+plugin.bookmarksPage = async function (req, res) {
+	if (!requireUid(req, res)) return;
+	const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+	const perPage = 20;
+	const key = bookmarksSetKey(req.uid);
+	const total = await db.sortedSetCard(key);
+	const pageCount = Math.max(1, Math.ceil(total / perPage));
+	const start = (page - 1) * perPage;
+	const stop = start + perPage - 1;
+	const tids = await db.getSortedSetRevRange(key, start, stop);
+	const topicsData = tids.length ? await topics.getTopicsByTids(tids, { uid: req.uid }) : [];
+	res.render('bookmarks', {
+		title: 'My Bookmarks',
+		topics: topicsData,
+		pagination: {
+			page,
+			pageCount,
+			total,
+			perPage,
+			prev: Math.max(1, page - 1),
+			next: Math.min(pageCount, page + 1),
+		},
+		breadcrumbs: [{ text: 'My Bookmarks', url: '/bookmarks' }],
+	});
+};
+
+plugin.init = async function (params) {
+	const { router, middleware } = params;
+	const routeHelpers = require.main.require('./src/routes/helpers');
+
+	// Page: /bookmarks (requires login)
+	routeHelpers.setupPageRoute(router, '/bookmarks', [middleware.ensureLoggedIn], plugin.bookmarksPage);
+
+	// API (plugin namespace; 403 if not logged in)
+	routeHelpers.setupApiRoute(router, 'get', '/api/bookmarks', [middleware.ensureLoggedIn], plugin.bookmarksList);
+	routeHelpers.setupApiRoute(router, 'get', '/api/bookmarks/:tid', [middleware.ensureLoggedIn], plugin.bookmarksStatus);
+	routeHelpers.setupApiRoute(router, 'post', '/api/bookmarks/:tid', [middleware.ensureLoggedIn], plugin.bookmarksAdd);
+	routeHelpers.setupApiRoute(router, 'delete', '/api/bookmarks/:tid', [middleware.ensureLoggedIn], plugin.bookmarksRemove);
 };
 
 // ─── Topic list filter (pagination + count) ───────────────────────────────
