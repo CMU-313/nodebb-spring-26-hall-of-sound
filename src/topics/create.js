@@ -200,6 +200,17 @@ module.exports = function (Topics) {
 
 		data.cid = topicData.cid;
 
+		// For question topics, allow replyType 'answer' or 'comment'
+		if (topicData.topicType === 'question') {
+			const replyType = (data.replyType || 'comment').toLowerCase();
+			if (replyType !== 'answer' && replyType !== 'comment') {
+				throw new Error('[[error:invalid-reply-type]]');
+			}
+			data.replyType = replyType;
+		} else {
+			delete data.replyType;
+		}
+
 		await guestHandleValid(data);
 		data.content = String(data.content || '').trimEnd();
 

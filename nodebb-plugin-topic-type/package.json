@@ -1,0 +1,10 @@
+{
+  "name": "nodebb-plugin-topic-type",
+  "version": "1.0.0",
+  "description": "Adds Question/Note topic type selection to the composer",
+  "main": "library.js",
+  "license": "MIT",
+  "nbbpm": {
+    "compatibility": "^3.0.0"
+  }
+}

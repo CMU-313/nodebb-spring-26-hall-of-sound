@@ -67,6 +67,9 @@ exports.post = async function (req, res) {
 		let result;
 		if (body.tid) {
 			data.tid = body.tid;
+			if (body.replyType) {
+				data.replyType = body.replyType;
+			}
 			result = await queueOrPost(topics.reply, data);
 		} else if (body.cid) {
 			data.cid = body.cid;

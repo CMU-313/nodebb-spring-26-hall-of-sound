@@ -14,6 +14,7 @@
 	"invalid-cid": "Invalid Category ID",
 	"invalid-tid": "Invalid Topic ID",
 	"invalid-pid": "Invalid Post ID",
+	"invalid-reply-type": "Reply type must be \"answer\" or \"comment\" for question topics.",
 	"invalid-uid": "Invalid User ID",
 	"invalid-mid": "Invalid Chat Message ID",
 	"invalid-date": "A valid date must be provided",
