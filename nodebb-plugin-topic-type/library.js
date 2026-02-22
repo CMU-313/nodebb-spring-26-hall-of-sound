@@ -11,44 +11,64 @@ const plugin = module.exports;
 
 const ANSWERED_SET_SUFFIX = ':tids:answered';
 const UNANSWERED_SET_SUFFIX = ':tids:unanswered';
+const ENDORSED_SET_SUFFIX = ':tids:endorsed';
 const SCORE = 1;
 
 function bookmarksSetKey(uid) {
 	return `uid:${uid}:bookmarks:tids`;
 }
 
+function getTopicFilterSetKeys(cid) {
+	return {
+		answered: `cid:${cid}${ANSWERED_SET_SUFFIX}`,
+		unanswered: `cid:${cid}${UNANSWERED_SET_SUFFIX}`,
+		endorsed: `cid:${cid}${ENDORSED_SET_SUFFIX}`,
+	};
+}
+
 /**
- * Check whether the topic has any non-deleted answer posts (replyType === 'answer')
- * and update cid:${cid}:tids:answered and cid:${cid}:tids:unanswered accordingly.
- * Only affects question topics.
+ * Recompute all question-topic filter sets for a topic in one pass:
+ * answered / unanswered / endorsed.
  * @param {number|string} tid - Topic id
  */
-async function recomputeTopicAnswerStatus(tid) {
+async function recomputeTopicQuestionFilterSets(tid) {
 	const topic = await topics.getTopicFields(tid, ['cid', 'topicType']);
 	if (!topic || topic.topicType !== 'question') {
 		return;
 	}
-	const cid = topic.cid;
-	const answeredSet = `cid:${cid}${ANSWERED_SET_SUFFIX}`;
-	const unansweredSet = `cid:${cid}${UNANSWERED_SET_SUFFIX}`;
+	const setKeys = getTopicFilterSetKeys(topic.cid);
 
 	const pids = await db.getSortedSetRange(`tid:${tid}:posts`, 0, -1);
 	if (!pids.length) {
-		await db.sortedSetRemove([answeredSet, unansweredSet], tid);
+		await db.sortedSetRemove([setKeys.answered, setKeys.unanswered, setKeys.endorsed], tid);
 		return;
 	}
 	const keys = pids.map(pid => `post:${pid}`);
-	const postData = await db.getObjectsFields(keys, ['replyType', 'deleted']);
-	const hasAnswer = postData.some(
-		p => p && p.replyType === 'answer' && parseInt(p.deleted, 10) !== 1
-	);
+	const postData = await db.getObjectsFields(keys, ['replyType', 'deleted', 'endorsed']);
+	let hasAnswer = false;
+	let hasEndorsedAnswer = false;
+	postData.forEach((post) => {
+		if (!post || post.replyType !== 'answer' || parseInt(post.deleted, 10) === 1) {
+			return;
+		}
+		hasAnswer = true;
+		if (parseInt(post.endorsed, 10) === 1) {
+			hasEndorsedAnswer = true;
+		}
+	});
 
 	if (hasAnswer) {
-		await db.sortedSetAdd(answeredSet, SCORE, tid);
-		await db.sortedSetRemove(unansweredSet, tid);
+		await db.sortedSetAdd(setKeys.answered, SCORE, tid);
+		await db.sortedSetRemove(setKeys.unanswered, tid);
 	} else {
-		await db.sortedSetRemove(answeredSet, tid);
-		await db.sortedSetAdd(unansweredSet, SCORE, tid);
+		await db.sortedSetRemove(setKeys.answered, tid);
+		await db.sortedSetAdd(setKeys.unanswered, SCORE, tid);
+	}
+
+	if (hasEndorsedAnswer) {
+		await db.sortedSetAdd(setKeys.endorsed, SCORE, tid);
+	} else {
+		await db.sortedSetRemove(setKeys.endorsed, tid);
 	}
 }
 
@@ -150,7 +170,7 @@ plugin.init = async function (params) {
 // ─── Topic list filter (pagination + count) ───────────────────────────────
 
 plugin.filterCategoryTopicsPrepare = async function (data) {
-	if (data.query && (data.query.answerStatus === 'answered' || data.query.answerStatus === 'unanswered')) {
+	if (data.query && ['answered', 'unanswered', 'endorsed'].includes(data.query.answerStatus)) {
 		data.answerStatus = data.query.answerStatus;
 	}
 	return data;
@@ -159,15 +179,14 @@ plugin.filterCategoryTopicsPrepare = async function (data) {
 plugin.filterCategoriesBuildTopicsSortedSet = async function (payload) {
 	const data = payload.data || payload;
 	const answerStatus = data.answerStatus || (data.query && data.query.answerStatus);
-	if (answerStatus !== 'answered' && answerStatus !== 'unanswered') {
+	if (!['answered', 'unanswered', 'endorsed'].includes(answerStatus)) {
 		return payload;
 	}
 	const cid = data.cid;
 	const currentSet = payload.set;
 	const sets = Array.isArray(currentSet) ? [...currentSet] : [currentSet];
-	const filterSet = answerStatus === 'answered'
-		? `cid:${cid}${ANSWERED_SET_SUFFIX}`
-		: `cid:${cid}${UNANSWERED_SET_SUFFIX}`;
+	const setKeys = getTopicFilterSetKeys(cid);
+	const filterSet = setKeys[answerStatus];
 	sets.push(filterSet);
 	return { ...payload, set: sets.length > 1 ? sets : sets[0] };
 };
@@ -181,7 +200,9 @@ plugin.onTopicSave = async function (payload) {
 	}
 	const cid = topic.cid;
 	const tid = topic.tid;
-	await db.sortedSetAdd(`cid:${cid}${UNANSWERED_SET_SUFFIX}`, SCORE, tid);
+	const setKeys = getTopicFilterSetKeys(cid);
+	await db.sortedSetAdd(setKeys.unanswered, SCORE, tid);
+	await db.sortedSetRemove([setKeys.answered, setKeys.endorsed], tid);
 };
 
 plugin.onPostSave = async function (payload) {
@@ -189,14 +210,7 @@ plugin.onPostSave = async function (payload) {
 	if (!post || post.replyType !== 'answer') {
 		return;
 	}
-	const topic = await topics.getTopicFields(post.tid, ['cid', 'topicType']);
-	if (!topic || topic.topicType !== 'question') {
-		return;
-	}
-	const cid = topic.cid;
-	const tid = post.tid;
-	await db.sortedSetAdd(`cid:${cid}${ANSWERED_SET_SUFFIX}`, SCORE, tid);
-	await db.sortedSetRemove(`cid:${cid}${UNANSWERED_SET_SUFFIX}`, tid);
+	await recomputeTopicQuestionFilterSets(post.tid);
 };
 
 plugin.onPostEdit = async function (payload) {
@@ -204,7 +218,7 @@ plugin.onPostEdit = async function (payload) {
 	if (!post || !post.tid) {
 		return;
 	}
-	await recomputeTopicAnswerStatus(post.tid);
+	await recomputeTopicQuestionFilterSets(post.tid);
 };
 
 plugin.onPostDelete = async function (payload) {
@@ -212,7 +226,7 @@ plugin.onPostDelete = async function (payload) {
 	if (!post || !post.tid) {
 		return;
 	}
-	await recomputeTopicAnswerStatus(post.tid);
+	await recomputeTopicQuestionFilterSets(post.tid);
 };
 
 plugin.onPostRestore = async function (payload) {
@@ -220,7 +234,7 @@ plugin.onPostRestore = async function (payload) {
 	if (!post || !post.tid) {
 		return;
 	}
-	await recomputeTopicAnswerStatus(post.tid);
+	await recomputeTopicQuestionFilterSets(post.tid);
 };
 
 plugin.onPostsPurge = async function (payload) {
@@ -230,7 +244,7 @@ plugin.onPostsPurge = async function (payload) {
 	}
 	const tids = [...new Set(postsData.map(p => p.tid).filter(Boolean))];
 	for (const tid of tids) {
-		await recomputeTopicAnswerStatus(tid);
+		await recomputeTopicQuestionFilterSets(tid);
 	}
 };
 
@@ -256,6 +270,7 @@ plugin.setupApiRoutes = async function ({ router, middleware }) {
 		}
 		const newValue = parseInt(post.endorsed, 10) === 1 ? 0 : 1;
 		await posts.setPostField(pid, 'endorsed', newValue);
+		await recomputeTopicQuestionFilterSets(post.tid);
 		websockets.in(`topic_${post.tid}`).emit('event:post.endorsed', { pid: pid, endorsed: newValue });
 		res.status(200).json({ endorsed: newValue });
 	});

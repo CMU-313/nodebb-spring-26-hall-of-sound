@@ -402,8 +402,21 @@
 
 	function getAnswerStatusFromUrl() {
 		var match = (window.location.search || '').match(/[?&]answerStatus=([^&]+)/);
-		return match ? decodeURIComponent(match[1]) : 'all';
+		var value = match ? decodeURIComponent(match[1]) : 'all';
+		return ANSWER_STATUS_LABELS[value] ? value : 'all';
 	}
+
+	var ANSWER_STATUS_OPTIONS = [
+		{ value: 'all', label: 'All' },
+		{ value: 'answered', label: 'Answered' },
+		{ value: 'unanswered', label: 'Unanswered' },
+		{ value: 'endorsed', label: 'Endorsed' },
+	];
+
+	var ANSWER_STATUS_LABELS = ANSWER_STATUS_OPTIONS.reduce(function (acc, option) {
+		acc[option.value] = option.label;
+		return acc;
+	}, {});
 
 	/**
 	 * Build URL for answer-status filter. Uses same codepath as tag filter: always sets tag=Question
@@ -433,17 +446,16 @@
 			return;
 		}
 		var current = getAnswerStatusFromUrl();
-		var labels = { all: 'All', answered: 'Answered', unanswered: 'Unanswered' };
 		var html = [
 			'<div class="btn-group bottom-sheet" data-component="topic-type-answer-status">',
 			'  <button class="btn btn-ghost btn-sm ff-secondary d-flex gap-2 align-items-center dropdown-toggle" data-bs-toggle="dropdown" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Filter by answer status">',
-			'    <span class="d-none d-md-inline fw-semibold">' + (labels[current] || 'All') + '</span>',
+			'    <span class="d-none d-md-inline fw-semibold">' + ANSWER_STATUS_LABELS[current] + '</span>',
 			'  </button>',
 			'  <ul class="dropdown-menu p-1 text-sm" role="menu">',
-			['all', 'answered', 'unanswered'].map(function (value) {
-				var active = current === value ? ' active' : '';
-				var href = buildUrlWithAnswerStatus(value);
-				return '<li><a class="dropdown-item rounded-1' + active + '" href="' + href + '" data-answer-status="' + value + '" role="menuitem">' + labels[value] + '</a></li>';
+			ANSWER_STATUS_OPTIONS.map(function (option) {
+				var active = current === option.value ? ' active' : '';
+				var href = buildUrlWithAnswerStatus(option.value);
+				return '<li><a class="dropdown-item rounded-1' + active + '" href="' + href + '" data-answer-status="' + option.value + '" role="menuitem">' + option.label + '</a></li>';
 			}).join(''),
 			'  </ul>',
 			'</div>'
