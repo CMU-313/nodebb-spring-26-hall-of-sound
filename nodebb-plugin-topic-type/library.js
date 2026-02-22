@@ -2,6 +2,9 @@
 
 const db = require.main.require('./src/database');
 const topics = require.main.require('./src/topics');
+const posts = require.main.require('./src/posts');
+const privileges = require.main.require('./src/privileges');
+const websockets = require.main.require('./src/socket.io');
 const controllerHelpers = require.main.require('./src/controllers/helpers');
 
 const plugin = module.exports;
@@ -229,4 +232,31 @@ plugin.onPostsPurge = async function (payload) {
 	for (const tid of tids) {
 		await recomputeTopicAnswerStatus(tid);
 	}
+};
+
+// ─── Instructor-endorsed answers API ──────────────────────────────────────
+
+plugin.setupApiRoutes = async function ({ router, middleware }) {
+	router.put('/endorse/:pid', middleware.ensureLoggedIn, async (req, res) => {
+		const pid = req.params.pid;
+		const post = await posts.getPostFields(pid, ['pid', 'tid', 'replyType', 'endorsed']);
+		if (!post || !post.pid) {
+			return controllerHelpers.formatApiResponse(404, res, new Error('[[error:no-post]]'));
+		}
+		if (post.replyType !== 'answer') {
+			return controllerHelpers.formatApiResponse(400, res, new Error('[[error:invalid-data]]'));
+		}
+		const topic = await topics.getTopicFields(post.tid, ['cid']);
+		if (!topic || !topic.cid) {
+			return controllerHelpers.formatApiResponse(404, res, new Error('[[error:no-topic]]'));
+		}
+		const isAdminOrMod = await privileges.categories.isAdminOrMod(topic.cid, req.uid);
+		if (!isAdminOrMod) {
+			return controllerHelpers.formatApiResponse(403, res, new Error('[[error:no-privileges]]'));
+		}
+		const newValue = parseInt(post.endorsed, 10) === 1 ? 0 : 1;
+		await posts.setPostField(pid, 'endorsed', newValue);
+		websockets.in(`topic_${post.tid}`).emit('event:post.endorsed', { pid: pid, endorsed: newValue });
+		res.status(200).json({ endorsed: newValue });
+	});
 };
