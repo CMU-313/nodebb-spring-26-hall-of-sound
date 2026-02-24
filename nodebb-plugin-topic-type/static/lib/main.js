@@ -165,6 +165,131 @@
 	}
 
 
+	// ── Instructor-endorsed answers ──────────────────────────────────────
+
+	function getEndorseApiUrl(pid) {
+		var base = (typeof config !== 'undefined' && config.relative_path) ? config.relative_path : '';
+		return base + '/api/v3/plugins/endorse/' + pid;
+	}
+
+	function applyEndorsedHighlight(postEl) {
+		if (!postEl) return;
+		postEl.style.backgroundColor = '#e6f9e6';
+		postEl.style.borderLeft = '3px solid #28a745';
+		var header = postEl.querySelector('.post-header');
+		if (!header) return;
+		var firstRow = header.querySelector('.d-flex.gap-1.flex-wrap') || header.firstElementChild;
+		if (!firstRow || firstRow.querySelector('[data-topic-type-endorsed-badge]')) return;
+		var badge = document.createElement('span');
+		badge.setAttribute('data-topic-type-endorsed-badge', '1');
+		badge.className = 'badge rounded-1 me-1 bg-success';
+		badge.textContent = 'Endorsed';
+		var replyBadge = firstRow.querySelector('[data-topic-type-reply-badge]');
+		if (replyBadge && replyBadge.nextSibling) {
+			firstRow.insertBefore(badge, replyBadge.nextSibling);
+		} else if (replyBadge) {
+			firstRow.appendChild(badge);
+		} else {
+			firstRow.insertBefore(badge, firstRow.firstChild);
+		}
+	}
+
+	function removeEndorsedHighlight(postEl) {
+		if (!postEl) return;
+		postEl.style.backgroundColor = '';
+		postEl.style.borderLeft = '';
+		var badge = postEl.querySelector('[data-topic-type-endorsed-badge]');
+		if (badge) badge.remove();
+	}
+
+	function handleEndorseClick(pid, btn) {
+		if (!pid || (btn && btn.disabled)) return;
+		if (btn) btn.disabled = true;
+		$.ajax({
+			url: getEndorseApiUrl(pid),
+			type: 'PUT',
+			headers: { 'x-csrf-token': config.csrf_token },
+			success: function (data) {
+				var postEl = document.querySelector('[component="post"][data-pid="' + pid + '"]');
+				if (data && data.endorsed) {
+					applyEndorsedHighlight(postEl);
+					if (btn) {
+						btn.classList.remove('btn-outline-success');
+						btn.classList.add('btn-success');
+					}
+				} else {
+					removeEndorsedHighlight(postEl);
+					if (btn) {
+						btn.classList.remove('btn-success');
+						btn.classList.add('btn-outline-success');
+					}
+				}
+			},
+			error: function () {
+				require(['alerts'], function (alerts) {
+					alerts.error('Could not update endorsement.');
+				});
+			},
+			complete: function () {
+				if (btn) btn.disabled = false;
+			}
+		});
+	}
+
+	function injectEndorseUI(postsList) {
+		if (typeof ajaxify === 'undefined' || !ajaxify.data || ajaxify.data.topicType !== 'question') {
+			return;
+		}
+		var isAdminOrMod = ajaxify.data.privileges && ajaxify.data.privileges.isAdminOrMod;
+		var list = Array.isArray(postsList) ? postsList : ajaxify.data.posts;
+		if (!Array.isArray(list)) return;
+
+		list.forEach(function (post) {
+			if (!post || !post.pid || post.replyType !== 'answer') return;
+			var postEl = document.querySelector('[component="post"][data-pid="' + post.pid + '"]');
+			if (!postEl) return;
+
+			// Apply highlight for all users if endorsed
+			if (parseInt(post.endorsed, 10) === 1) {
+				applyEndorsedHighlight(postEl);
+			}
+
+			// Inject endorse button for admins/mods only
+			if (!isAdminOrMod) return;
+			var header = postEl.querySelector('.post-header');
+			if (!header) return;
+			var firstRow = header.querySelector('.d-flex.gap-1.flex-wrap') || header.firstElementChild;
+			if (!firstRow || firstRow.querySelector('[data-endorse-btn]')) return;
+
+			var btn = document.createElement('button');
+			btn.setAttribute('data-endorse-btn', '1');
+			btn.setAttribute('data-pid', post.pid);
+			btn.type = 'button';
+			btn.title = 'Endorse answer';
+			btn.className = 'btn btn-sm ' + (parseInt(post.endorsed, 10) === 1 ? 'btn-success' : 'btn-outline-success');
+			btn.innerHTML = '<i class="fa fa-check"></i>';
+			btn.addEventListener('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				handleEndorseClick(post.pid, btn);
+			});
+
+			var endorsedBadge = firstRow.querySelector('[data-topic-type-endorsed-badge]');
+			if (endorsedBadge && endorsedBadge.nextSibling) {
+				firstRow.insertBefore(btn, endorsedBadge.nextSibling);
+			} else if (endorsedBadge) {
+				firstRow.appendChild(btn);
+			} else {
+				var replyBadge = firstRow.querySelector('[data-topic-type-reply-badge]');
+				if (replyBadge && replyBadge.nextSibling) {
+					firstRow.insertBefore(btn, replyBadge.nextSibling);
+				} else {
+					firstRow.appendChild(btn);
+				}
+			}
+		});
+	}
+
 	// ── Reply filter (All / Answers / Comments) on question topic pages ───
 	var REPLY_FILTER_KEY = 'topicReplyFilter';
 
@@ -254,6 +379,7 @@
 		}
 		injectQuickReplyTypeSelector();
 		injectReplyTypeBadges();
+		injectEndorseUI();
 		if (ajaxify.data.topicType === 'question') {
 			injectReplyFilterDropdown();
 		}
@@ -276,8 +402,21 @@
 
 	function getAnswerStatusFromUrl() {
 		var match = (window.location.search || '').match(/[?&]answerStatus=([^&]+)/);
-		return match ? decodeURIComponent(match[1]) : 'all';
+		var value = match ? decodeURIComponent(match[1]) : 'all';
+		return ANSWER_STATUS_LABELS[value] ? value : 'all';
 	}
+
+	var ANSWER_STATUS_OPTIONS = [
+		{ value: 'all', label: 'All' },
+		{ value: 'answered', label: 'Answered' },
+		{ value: 'unanswered', label: 'Unanswered' },
+		{ value: 'endorsed', label: 'Endorsed' },
+	];
+
+	var ANSWER_STATUS_LABELS = ANSWER_STATUS_OPTIONS.reduce(function (acc, option) {
+		acc[option.value] = option.label;
+		return acc;
+	}, {});
 
 	/**
 	 * Build URL for answer-status filter. Uses same codepath as tag filter: always sets tag=Question
@@ -307,17 +446,16 @@
 			return;
 		}
 		var current = getAnswerStatusFromUrl();
-		var labels = { all: 'All', answered: 'Answered', unanswered: 'Unanswered' };
 		var html = [
 			'<div class="btn-group bottom-sheet" data-component="topic-type-answer-status">',
 			'  <button class="btn btn-ghost btn-sm ff-secondary d-flex gap-2 align-items-center dropdown-toggle" data-bs-toggle="dropdown" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Filter by answer status">',
-			'    <span class="d-none d-md-inline fw-semibold">' + (labels[current] || 'All') + '</span>',
+			'    <span class="d-none d-md-inline fw-semibold">' + ANSWER_STATUS_LABELS[current] + '</span>',
 			'  </button>',
 			'  <ul class="dropdown-menu p-1 text-sm" role="menu">',
-			['all', 'answered', 'unanswered'].map(function (value) {
-				var active = current === value ? ' active' : '';
-				var href = buildUrlWithAnswerStatus(value);
-				return '<li><a class="dropdown-item rounded-1' + active + '" href="' + href + '" data-answer-status="' + value + '" role="menuitem">' + labels[value] + '</a></li>';
+			ANSWER_STATUS_OPTIONS.map(function (option) {
+				var active = current === option.value ? ' active' : '';
+				var href = buildUrlWithAnswerStatus(option.value);
+				return '<li><a class="dropdown-item rounded-1' + active + '" href="' + href + '" data-answer-status="' + option.value + '" role="menuitem">' + option.label + '</a></li>';
 			}).join(''),
 			'  </ul>',
 			'</div>'
@@ -399,6 +537,7 @@
 				// Use payload posts when present (new reply / load more) so reply-type badge appears without refresh
 				var posts = payload && payload.posts;
 				injectReplyTypeBadges(posts);
+				injectEndorseUI(posts);
 				applyReplyFilter();
 			});
 	
@@ -416,7 +555,34 @@
 				}
 			});
 	
-			hooks.on('filter:composer.submit', function (hookData) {
+			// ── WebSocket: real-time endorsement updates ─────────────────────
+		require(['forum/topic/events'], function () {
+			if (typeof socket !== 'undefined' && socket.on) {
+				socket.on('event:post.endorsed', function (data) {
+					if (!data || !data.pid) return;
+					var postEl = document.querySelector('[component="post"][data-pid="' + data.pid + '"]');
+					if (!postEl) return;
+					if (parseInt(data.endorsed, 10) === 1) {
+						applyEndorsedHighlight(postEl);
+					} else {
+						removeEndorsedHighlight(postEl);
+					}
+					// Update endorse button state if present
+					var btn = postEl.querySelector('[data-endorse-btn]');
+					if (btn) {
+						if (parseInt(data.endorsed, 10) === 1) {
+							btn.classList.remove('btn-outline-success');
+							btn.classList.add('btn-success');
+						} else {
+							btn.classList.remove('btn-success');
+							btn.classList.add('btn-outline-success');
+						}
+					}
+				});
+			}
+		});
+
+		hooks.on('filter:composer.submit', function (hookData) {
 				if (hookData.action === 'topics.post') {
 					var selected = hookData.composerEl
 						.find('input[name="topic-type"]:checked')

@@ -15,7 +15,8 @@
 	  { "hook": "action:post.edit", "method": "onPostEdit" },
 	  { "hook": "action:post.delete", "method": "onPostDelete" },
 	  { "hook": "action:post.restore", "method": "onPostRestore" },
-	  { "hook": "action:posts.purge", "method": "onPostsPurge" }
+	  { "hook": "action:posts.purge", "method": "onPostsPurge" },
+	  { "hook": "static:api.routes", "method": "setupApiRoutes" }
 	]
   }
   
