@@ -211,6 +211,28 @@ Categories.getTagWhitelist = async function (cids) {
 	return cids.map(cid => cachedData[cid]);
 };
 
+Categories.addToTagWhitelist = async function (cid, tags) {
+	if (!utils.isNumber(cid) || !Array.isArray(tags) || !tags.length) {
+		return;
+	}
+	tags = _.uniq(tags.map(tag => utils.cleanUpTag(tag, meta.config.maximumTagLength)).filter(Boolean));
+	if (!tags.length) {
+		return;
+	}
+
+	const tagWhitelist = await Categories.getTagWhitelist([cid]);
+	const existing = Array.isArray(tagWhitelist[0]) ? tagWhitelist[0] : [];
+	const existingSet = new Set(existing);
+	const toAdd = tags.filter(tag => !existingSet.has(tag));
+	if (!toAdd.length) {
+		return;
+	}
+
+	const scores = toAdd.map((tag, index) => existing.length + index);
+	await db.sortedSetAdd(`cid:${cid}:tag:whitelist`, scores, toAdd);
+	cache.del(`cid:${cid}:tag:whitelist`);
+};
+
 // remove system tags from tag whitelist for non privileged user
 Categories.filterTagWhitelist = function (tagWhitelist, isAdminOrMod) {
 	const systemTags = (meta.config.systemTags || '').split(',');

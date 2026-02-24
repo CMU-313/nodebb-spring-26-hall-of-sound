@@ -87,6 +87,13 @@
 				<div class="mb-3">
 					<label class="form-label" for="tag-whitelist">[[admin/manage/categories:tag-whitelist]]</label>
 					<input id="tag-whitelist" type="text" class="form-control" data-name="tagWhitelist" value="" />
+					{{{ if category.canManageTagWhitelist }}}
+					<div class="mt-2">
+						<button type="button" class="btn btn-light btn-sm" id="tag-whitelist-add">
+							[[admin/manage/categories:add-tag-whitelist]]
+						</button>
+					</div>
+					{{{ end }}}
 				</div>
 
 				<div class="mb-3 d-flex flex-column">
@@ -187,5 +194,3 @@
 		<!-- IMPORT admin/partials/category/sidebar.tpl -->
 	</div>
 </div>
-
-

@@ -1780,6 +1780,11 @@ describe('Topic\'s', () => {
 		it('should not error if regular user edits topic after admin adds system tags', async () => {
 			const oldValue = meta.config.systemTags;
 			meta.config.systemTags = 'moved,locked';
+			await categories.update({
+				[categoryObj.cid]: {
+					tagWhitelist: 'one,two',
+				},
+			});
 			const result = await topics.post({
 				uid: fooUid,
 				tags: ['one', 'two'],
@@ -2047,6 +2052,11 @@ describe('Topic\'s', () => {
 			uid = await User.create({ username: 'tag_poster' });
 			const category = await categories.create({ name: 'tag category' });
 			cid = category.cid;
+			await categories.update({
+				[cid]: {
+					tagWhitelist: 'tag1,tag2',
+				},
+			});
 		});
 
 		it('should fail to post if user does not have tag privilege', (done) => {

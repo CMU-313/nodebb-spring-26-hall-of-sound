@@ -10,6 +10,7 @@ const plugins = require('../../plugins');
 const translator = require('../../translator');
 const meta = require('../../meta');
 const activitypub = require('../../activitypub');
+const privileges = require('../../privileges');
 const helpers = require('../helpers');
 const pagination = require('../../pagination');
 const utils = require('../../utils');
@@ -39,6 +40,8 @@ categoriesController.get = async function (req, res, next) {
 	});
 	data.category.name = translator.escape(String(data.category.name));
 	data.category.description = translator.escape(String(data.category.description));
+	data.category.canManageTagWhitelist = utils.isNumber(data.category.cid) &&
+		await privileges.categories.isAdminOrMod(data.category.cid, req.uid);
 
 	res.render('admin/manage/category', {
 		category: data.category,

@@ -92,6 +92,7 @@ topicsController.get = async function getTopic(req, res, next) {
 
 	topics.modifyPostsByPrivilege(topicData, userPrivileges);
 	topicData.tagWhitelist = categories.filterTagWhitelist(topicData.tagWhitelist, userPrivileges.isAdminOrMod);
+	topicData.canManageTagWhitelist = userPrivileges.isAdminOrMod;
 
 	topicData.privileges = userPrivileges;
 	topicData.topicStaleDays = meta.config.topicStaleDays;

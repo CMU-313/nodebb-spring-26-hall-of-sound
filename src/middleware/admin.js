@@ -7,6 +7,7 @@ const user = require('../user');
 const meta = require('../meta');
 const plugins = require('../plugins');
 const privileges = require('../privileges');
+const utils = require('../utils');
 const helpers = require('./helpers');
 
 const controllers = {
@@ -36,8 +37,12 @@ middleware.checkPrivileges = helpers.try(async (req, res, next) => {
 	const path = req.path.replace(/^(\/api)?(\/v3)?\/admin\/?/g, '');
 	if (path) {
 		const privilege = privileges.admin.resolve(path);
-		if (!await privileges.admin.can(privilege, req.uid)) {
-			return controllers.helpers.notAllowed(req, res);
+		const hasAdminPrivilege = await privileges.admin.can(privilege, req.uid);
+		if (!hasAdminPrivilege) {
+			const allowedForCategoryMod = await allowCategoryModerators(req.uid, path);
+			if (!allowedForCategoryMod) {
+				return controllers.helpers.notAllowed(req, res);
+			}
 		}
 	} else {
 		// If accessing /admin, check for any valid admin privs
@@ -85,3 +90,20 @@ middleware.checkPrivileges = helpers.try(async (req, res, next) => {
 		res.redirect(`${nconf.get('relative_path')}/login?local=1`);
 	}
 });
+
+async function allowCategoryModerators(uid, path) {
+	const parts = path.split('/').filter(Boolean);
+	if (parts[0] !== 'manage' || parts[1] !== 'categories') {
+		return false;
+	}
+
+	if (!parts[2]) {
+		return await user.isModeratorOfAnyCategory(uid);
+	}
+
+	if (!utils.isNumber(parts[2]) || parts.length !== 3) {
+		return false;
+	}
+
+	return await privileges.categories.isAdminOrMod(parts[2], uid);
+}

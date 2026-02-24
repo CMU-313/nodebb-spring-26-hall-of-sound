@@ -56,6 +56,13 @@
 			<i class="fa fa-fw fa-tag text-secondary"></i> [[topic:thread-tools.tag]]
 		</a>
 	</li>
+	{{{ if canManageTagWhitelist }}}
+	<li>
+		<a component="category/manage-tags" href="#" class="dropdown-item rounded-1 d-flex align-items-center gap-2" role="menuitem">
+			<i class="fa fa-fw fa-tags text-secondary"></i> [[category:manage-tag-whitelist]]
+		</a>
+	</li>
+	{{{ end }}}
 
 	<li class="dropdown-divider"></li>
 

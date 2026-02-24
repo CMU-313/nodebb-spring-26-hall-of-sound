@@ -41,6 +41,11 @@ describe('Post\'s', () => {
 			name: 'Test Category',
 			description: 'Test category created by testing script',
 		}));
+		await categories.update({
+			[cid]: {
+				tagWhitelist: 'nodebb,edited,edited-twice,deleted',
+			},
+		});
 
 		({ topicData, postData } = await topics.post({
 			uid: voteeUid,

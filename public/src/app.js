@@ -119,6 +119,16 @@ if (document.readyState === 'loading') {
 			hooks.fire('action:app.load');
 			messages.show();
 			appLoaded = true;
+
+			// Allow admins/mods to type free-form tags in the composer even when a whitelist exists
+			$(window).on('action:tag.toggleInput', function (ev, data) {
+				if ((app.user.isAdmin || app.user.isGlobalMod || app.user.isMod) && data.tagsInput && data.tagsInput.length) {
+					data.tagsInput.removeAttr('readonly');
+					data.tagsInput.css('display', '');
+					data.tagsInput.attr('placeholder', data.postContainer.find('input.tags').attr('placeholder') || '');
+					data.postContainer.find('.tags-container').removeClass('haswhitelist');
+				}
+			});
 		});
 	};
 

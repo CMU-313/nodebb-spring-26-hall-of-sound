@@ -16,10 +16,12 @@ describe('Categories', () => {
 	let categoryObj;
 	let posterUid;
 	let adminUid;
+	let modUid;
 
 	before(async () => {
 		posterUid = await User.create({ username: 'poster' });
 		adminUid = await User.create({ username: 'admin' });
+		modUid = await User.create({ username: 'mod' });
 		await groups.join('administrators', adminUid);
 	});
 
@@ -180,6 +182,11 @@ describe('Categories', () => {
 		const socketCategories = require('../src/socket.io/categories');
 		const apiCategories = require('../src/api/categories');
 		before(async () => {
+			await Categories.update({
+				[categoryObj.cid]: {
+					tagWhitelist: 'nodebb',
+				},
+			});
 			await Topics.post({
 				uid: posterUid,
 				cid: categoryObj.cid,
@@ -578,9 +585,10 @@ describe('Categories', () => {
 		before((done) => {
 			Categories.create({
 				name: 'test',
-			}, (err, category) => {
+			}, async (err, category) => {
 				assert.ifError(err);
 				cid = category.cid;
+				await privileges.categories.give(['moderate'], cid, [modUid]);
 				done();
 			});
 		});
@@ -592,11 +600,49 @@ describe('Categories', () => {
 			});
 		});
 
-		it('should return true if category whitelist is empty', (done) => {
+		it('should return false for non-mod if category whitelist is empty', (done) => {
 			socketTopics.isTagAllowed({ uid: posterUid }, { tag: 'notallowed', cid: cid }, (err, allowed) => {
+				assert.ifError(err);
+				assert(!allowed);
+				done();
+			});
+		});
+
+		it('should return true for mod if category whitelist is empty', (done) => {
+			socketTopics.isTagAllowed({ uid: modUid }, { tag: 'newtag', cid: cid }, (err, allowed) => {
 				assert.ifError(err);
 				assert(allowed);
 				done();
+			});
+		});
+
+		it('should not allow non-mod to post tags when whitelist is empty', (done) => {
+			Topics.post({
+				uid: posterUid,
+				cid: cid,
+				title: 'Test Topic Title',
+				content: 'The content of test topic',
+				tags: ['notallowed'],
+			}, (err) => {
+				assert.equal(err.message, '[[error:tag-not-allowed]]');
+				done();
+			});
+		});
+
+		it('should append mod-created tags to whitelist when empty', (done) => {
+			Topics.post({
+				uid: modUid,
+				cid: cid,
+				title: 'Mod Topic',
+				content: 'Mod topic content',
+				tags: ['modtag'],
+			}, (err) => {
+				assert.ifError(err);
+				db.getSortedSetRange(`cid:${cid}:tag:whitelist`, 0, -1, (err, tagWhitelist) => {
+					assert.ifError(err);
+					assert(tagWhitelist.includes('modtag'));
+					done();
+				});
 			});
 		});
 
@@ -631,16 +677,15 @@ describe('Categories', () => {
 			});
 		});
 
-		it('should post a topic with only allowed tags', (done) => {
+		it('should not allow posting with non-whitelisted tags', (done) => {
 			Topics.post({
 				uid: posterUid,
 				cid: cid,
 				title: 'Test Topic Title',
 				content: 'The content of test topic',
 				tags: ['nodebb', 'jquery', 'notallowed'],
-			}, (err, data) => {
-				assert.ifError(err);
-				assert.equal(data.topicData.tags.length, 2);
+			}, (err) => {
+				assert.equal(err.message, '[[error:tag-not-allowed]]');
 				done();
 			});
 		});
@@ -659,9 +704,9 @@ describe('Categories', () => {
 		});
 
 		it('should filter uids by privilege', (done) => {
-			privileges.categories.filterUids('find', categoryObj.cid, [1, 2, 3, 4], (err, uids) => {
+			privileges.categories.filterUids('find', categoryObj.cid, [posterUid, adminUid, modUid, 4], (err, uids) => {
 				assert.ifError(err);
-				assert.deepEqual(uids, [1, 2]);
+				assert.deepEqual(uids, [posterUid, adminUid, modUid]);
 				done();
 			});
 		});

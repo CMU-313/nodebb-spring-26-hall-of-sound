@@ -294,6 +294,55 @@ define('admin/manage/category', [
 		tagEl.on('itemAdded itemRemoved', function () {
 			modified(tagEl);
 		});
+
+		let addTagModal;
+		$('#tag-whitelist-add').on('click', function () {
+			if (addTagModal) {
+				return;
+			}
+			Benchpress.render('modals/tag-topic', {
+				modalTitle: '[[admin/manage/categories:add-tag-whitelist-title]]',
+				commitLabel: '[[admin/manage/categories:add-tag-whitelist-add]]',
+				tagWhitelist: ajaxify.data.category.tagWhitelist || [],
+				topics: [{
+					title: '[[admin/manage/categories:add-tag-whitelist-label]]',
+				}],
+			}).then(function (html) {
+				addTagModal = $(html);
+				$('body').append(addTagModal);
+
+				const modalTags = addTagModal.find('.tags');
+				modalTags.tagsinput({
+					tagClass: 'badge bg-info',
+					confirmKeys: [13, 44],
+					trimValue: true,
+				});
+
+				function closeModal() {
+					if (addTagModal) {
+						addTagModal.remove();
+						addTagModal = null;
+					}
+				}
+
+				addTagModal.find('#tag-topic-cancel').on('click', closeModal);
+				addTagModal.find('#tag-topic-commit').on('click', function () {
+					const items = modalTags.tagsinput('items');
+					if (!items.length) {
+						return alerts.error('[[error:invalid-tag]]');
+					}
+					const unique = [...new Set(items)];
+					unique.forEach((tag) => {
+						tagEl.tagsinput('add', tag);
+						if (Array.isArray(ajaxify.data.category.tagWhitelist) &&
+							!ajaxify.data.category.tagWhitelist.includes(tag)) {
+							ajaxify.data.category.tagWhitelist.push(tag);
+						}
+					});
+					closeModal();
+				});
+			});
+		});
 	}
 
 	return Category;

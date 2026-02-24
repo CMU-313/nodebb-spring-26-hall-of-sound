@@ -44,6 +44,15 @@ describe('Search', () => {
 			parentCid: cid2,
 		})).cid;
 
+		await categories.update({
+			[cid1]: {
+				tagWhitelist: 'nodebb,bug,plugin,nodebb-plugin,jquery',
+			},
+			[cid2]: {
+				tagWhitelist: 'nodebb,bug,plugin,nodebb-plugin,javascript',
+			},
+		});
+
 		({ topicData: topic1Data, postData: post1Data } = await topics.post({
 			uid: phoebeUid,
 			cid: cid1,

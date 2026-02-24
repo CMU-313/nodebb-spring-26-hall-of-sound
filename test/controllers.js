@@ -870,6 +870,11 @@ describe('Controllers', () => {
 
 	describe('tags', () => {
 		before(async () => {
+			await categories.update({
+				[cid]: {
+					tagWhitelist: 'nodebb,bug,test',
+				},
+			});
 			await topics.post({
 				uid: fooUid,
 				title: 'topic title',
@@ -1598,6 +1603,11 @@ describe('Controllers', () => {
 
 		it('should load a specific users topics from a category with tags', async () => {
 			const category = await categories.create({ name: 'filtered-category' });
+			await categories.update({
+				[category.cid]: {
+					tagWhitelist: 'java,cpp,node,javascript,best',
+				},
+			});
 			await topics.post({ uid: fooUid, cid: category.cid, title: 'topic 1', content: 'topic 1 OP', tags: ['java', 'cpp'] });
 			await topics.post({ uid: fooUid, cid: category.cid, title: 'topic 2', content: 'topic 2 OP', tags: ['node', 'javascript'] });
 			await topics.post({ uid: fooUid, cid: category.cid, title: 'topic 3', content: 'topic 3 OP', tags: ['java', 'cpp', 'best'] });

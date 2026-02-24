@@ -9,12 +9,18 @@ define('forum/topic/tag', [
 	let tagCommit;
 	let topics;
 	let tagWhitelist;
-	Tag.init = function (_topics, _tagWhitelist, onComplete) {
+	let canManageTagWhitelist = false;
+	Tag.init = function (_topics, _tagWhitelist, _canManageTagWhitelist, onComplete) {
 		if (tagModal) {
 			return;
 		}
+		if (typeof _canManageTagWhitelist === 'function') {
+			onComplete = _canManageTagWhitelist;
+			_canManageTagWhitelist = false;
+		}
 		topics = _topics;
 		tagWhitelist = _tagWhitelist || [];
+		canManageTagWhitelist = !!_canManageTagWhitelist;
 
 		app.parseAndTranslate('modals/tag-topic', {
 			topics: topics,
@@ -48,9 +54,12 @@ define('forum/topic/tag', [
 				topic.tags.forEach(tag => tagEl.tagsinput('add', tag.value));
 
 				tagEl.on('itemAdded', function (event) {
-					if (tagWhitelist.length && !tagWhitelist.includes(event.item)) {
-						tagEl.tagsinput('remove', event.item);
-						alerts.error('[[error:tag-not-allowed]]');
+					if (!canManageTagWhitelist) {
+						const allowed = tagWhitelist.length && tagWhitelist.includes(event.item);
+						if (!allowed) {
+							tagEl.tagsinput('remove', event.item);
+							alerts.error('[[error:tag-not-allowed]]');
+						}
 					}
 					if (input.length) {
 						input.autocomplete('close');
