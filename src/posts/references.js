@@ -101,6 +101,8 @@ module.exports = function (Posts) {
 	 * Replace valid @post-number references in escaped content with clickable links.
 	 * Only runs when uid is set (viewer context). Uses getVisiblePostReferencePids
 	 * and resolvePostReferencePaths; replaces from end to start so indices stay valid.
+	 * Invalid, nonexistent, unauthorized, or malformed references are left unchanged
+	 * as plain @number text so rendering never breaks.
 	 * @param {string} content - Escaped post content (after translator.escape)
 	 * @param {number} uid - Viewer user ID (undefined = no links, leave as plain text)
 	 * @returns {Promise<string>}
@@ -119,16 +121,20 @@ module.exports = function (Posts) {
 			return content;
 		}
 		const pathMap = await Posts.resolvePostReferencePaths(visiblePids, uid);
-		// Replace from end to start so earlier indices are not invalidated
+		// Replace from end to start so earlier indices are not invalidated.
+		// Only replace when path is a safe relative path; otherwise preserve as plain text.
 		const sortedRefs = refs.slice().sort((a, b) => b.start - a.start);
 		let out = content;
 		for (const ref of sortedRefs) {
 			const path = pathMap[ref.pid];
-			if (path) {
-				const href = path.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+			const safePath = typeof path === 'string' && path.startsWith('/') &&
+				path.indexOf('<') === -1 && path.indexOf('"') === -1 ? path : null;
+			if (safePath) {
+				const href = safePath.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 				const link = `<a href="${href}">@${ref.pid}</a>`;
 				out = out.slice(0, ref.start) + link + out.slice(ref.end);
 			}
+			// If no safe path: leave ref as plain @number (invalid/unauthorized/malformed)
 		}
 		return out;
 	};
