@@ -26,12 +26,12 @@ const privileges = require('../privileges');
 
 const postReferenceRegex = /@(\d+)/g;
 
+// --- Parsing (pure, no I/O) ---
+
 /**
  * Find all @post-number references in content. Matches only @ followed by
  * digits (e.g. @23, @1); does not match @username. Returns matches in order
  * (left to right); each match has pid, start, end for safe replacement.
- * @param {string} content - Raw or escaped post content
- * @returns {{ pid: number, start: number, end: number }[]}
  */
 function parsePostReferences(content) {
 	if (!content || typeof content !== 'string') {
@@ -50,17 +50,43 @@ function parsePostReferences(content) {
 	return refs;
 }
 
+// --- Path safety and link building (pure, no I/O) ---
+
+function isSafePath(path) {
+	return typeof path === 'string' && path.startsWith('/') &&
+		path.indexOf('<') === -1 && path.indexOf('"') === -1;
+}
+
+function escapeHrefForAttribute(path) {
+	return path.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+function buildReferenceLink(pid, path) {
+	return `<a href="${escapeHrefForAttribute(path)}">@${pid}</a>`;
+}
+
+/**
+ * Apply replacements from end to start so indices remain valid. Only replaces
+ * refs whose pid is in pathMap with a safe path; others stay as plain text.
+ */
+function applyReferenceReplacements(content, refs, pathMap) {
+	const sortedRefs = refs.slice().sort((a, b) => b.start - a.start);
+	let out = content;
+	for (const ref of sortedRefs) {
+		const path = pathMap[ref.pid];
+		if (path && isSafePath(path)) {
+			const link = buildReferenceLink(ref.pid, path);
+			out = out.slice(0, ref.start) + link + out.slice(ref.end);
+		}
+	}
+	return out;
+}
+
+// --- Resolution and permissions (async, use Posts and privileges) ---
+
 module.exports = function (Posts) {
 	Posts.parsePostReferences = parsePostReferences;
 
-	/**
-	 * Resolve post IDs to topic URLs. Only includes posts that exist; uses
-	 * Posts.generatePostPaths for path generation. Does not perform permission
-	 * checks (handled separately for rendering).
-	 * @param {number[]} pids - Post IDs to resolve
-	 * @param {number} uid - User ID for path generation (post order can depend on user settings)
-	 * @returns {Promise<Object.<number, string>>} Map of pid -> path (e.g. '/topic/1/slug/2')
-	 */
 	Posts.resolvePostReferencePaths = async function (pids, uid) {
 		if (!Array.isArray(pids) || pids.length === 0) {
 			return {};
@@ -81,14 +107,6 @@ module.exports = function (Posts) {
 		return result;
 	};
 
-	/**
-	 * Return which of the given post IDs the user is allowed to view (topics:read).
-	 * Used before link rendering so references to posts the viewer cannot see
-	 * stay as plain @number text.
-	 * @param {number[]} pids - Post IDs to check
-	 * @param {number} uid - Viewer user ID
-	 * @returns {Promise<number[]>} Pids the user may read (subset of input)
-	 */
 	Posts.getVisiblePostReferencePids = async function (pids, uid) {
 		if (!Array.isArray(pids) || pids.length === 0) {
 			return [];
@@ -99,13 +117,8 @@ module.exports = function (Posts) {
 
 	/**
 	 * Replace valid @post-number references in escaped content with clickable links.
-	 * Only runs when uid is set (viewer context). Uses getVisiblePostReferencePids
-	 * and resolvePostReferencePaths; replaces from end to start so indices stay valid.
-	 * Invalid, nonexistent, unauthorized, or malformed references are left unchanged
-	 * as plain @number text so rendering never breaks.
-	 * @param {string} content - Escaped post content (after translator.escape)
-	 * @param {number} uid - Viewer user ID (undefined = no links, leave as plain text)
-	 * @returns {Promise<string>}
+	 * Pipeline: parse refs -> filter by visibility -> resolve paths -> apply replacements.
+	 * Invalid, nonexistent, or unauthorized refs are left as plain @number text.
 	 */
 	Posts.replacePostReferenceLinks = async function (content, uid) {
 		if (content == null || typeof content !== 'string' || uid == null || uid === '') {
@@ -121,21 +134,6 @@ module.exports = function (Posts) {
 			return content;
 		}
 		const pathMap = await Posts.resolvePostReferencePaths(visiblePids, uid);
-		// Replace from end to start so earlier indices are not invalidated.
-		// Only replace when path is a safe relative path; otherwise preserve as plain text.
-		const sortedRefs = refs.slice().sort((a, b) => b.start - a.start);
-		let out = content;
-		for (const ref of sortedRefs) {
-			const path = pathMap[ref.pid];
-			const safePath = typeof path === 'string' && path.startsWith('/') &&
-				path.indexOf('<') === -1 && path.indexOf('"') === -1 ? path : null;
-			if (safePath) {
-				const href = safePath.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-				const link = `<a href="${href}">@${ref.pid}</a>`;
-				out = out.slice(0, ref.start) + link + out.slice(ref.end);
-			}
-			// If no safe path: leave ref as plain @number (invalid/unauthorized/malformed)
-		}
-		return out;
+		return applyReferenceReplacements(content, refs, pathMap);
 	};
 };
