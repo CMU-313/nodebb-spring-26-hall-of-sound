@@ -22,4 +22,32 @@
  * existing mention behavior is unchanged.
  */
 
-module.exports = function () {};
+const postReferenceRegex = /@(\d+)/g;
+
+/**
+ * Find all @post-number references in content. Matches only @ followed by
+ * digits (e.g. @23, @1); does not match @username. Returns matches in order
+ * (left to right); each match has pid, start, end for safe replacement.
+ * @param {string} content - Raw or escaped post content
+ * @returns {{ pid: number, start: number, end: number }[]}
+ */
+function parsePostReferences(content) {
+	if (!content || typeof content !== 'string') {
+		return [];
+	}
+	const refs = [];
+	let m;
+	postReferenceRegex.lastIndex = 0;
+	while ((m = postReferenceRegex.exec(content)) !== null) {
+		refs.push({
+			pid: parseInt(m[1], 10),
+			start: m.index,
+			end: m.index + m[0].length,
+		});
+	}
+	return refs;
+}
+
+module.exports = function (Posts) {
+	Posts.parsePostReferences = parsePostReferences;
+};
