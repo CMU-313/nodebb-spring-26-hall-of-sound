@@ -59,6 +59,7 @@ module.exports = function (Posts) {
 
 		({ postData } = await plugins.hooks.fire('filter:parse.post', { postData, type }));
 		postData.content = translator.escape(postData.content);
+		postData.content = await Posts.replacePostReferenceLinks(postData.content, postData.parsedForUid);
 		if (postData.pid) {
 			cache.set(cacheKey, postData.content);
 		}

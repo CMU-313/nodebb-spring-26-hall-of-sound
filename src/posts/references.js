@@ -96,4 +96,40 @@ module.exports = function (Posts) {
 		const filtered = await privileges.posts.filter('topics:read', pids, uid);
 		return filtered || [];
 	};
+
+	/**
+	 * Replace valid @post-number references in escaped content with clickable links.
+	 * Only runs when uid is set (viewer context). Uses getVisiblePostReferencePids
+	 * and resolvePostReferencePaths; replaces from end to start so indices stay valid.
+	 * @param {string} content - Escaped post content (after translator.escape)
+	 * @param {number} uid - Viewer user ID (undefined = no links, leave as plain text)
+	 * @returns {Promise<string>}
+	 */
+	Posts.replacePostReferenceLinks = async function (content, uid) {
+		if (content == null || typeof content !== 'string' || uid == null || uid === '') {
+			return content;
+		}
+		const refs = parsePostReferences(content);
+		if (refs.length === 0) {
+			return content;
+		}
+		const pids = [...new Set(refs.map(r => r.pid))];
+		const visiblePids = await Posts.getVisiblePostReferencePids(pids, uid);
+		if (visiblePids.length === 0) {
+			return content;
+		}
+		const pathMap = await Posts.resolvePostReferencePaths(visiblePids, uid);
+		// Replace from end to start so earlier indices are not invalidated
+		const sortedRefs = refs.slice().sort((a, b) => b.start - a.start);
+		let out = content;
+		for (const ref of sortedRefs) {
+			const path = pathMap[ref.pid];
+			if (path) {
+				const href = path.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+				const link = `<a href="${href}">@${ref.pid}</a>`;
+				out = out.slice(0, ref.start) + link + out.slice(ref.end);
+			}
+		}
+		return out;
+	};
 };
