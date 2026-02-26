@@ -50,4 +50,32 @@ function parsePostReferences(content) {
 
 module.exports = function (Posts) {
 	Posts.parsePostReferences = parsePostReferences;
+
+	/**
+	 * Resolve post IDs to topic URLs. Only includes posts that exist; uses
+	 * Posts.generatePostPaths for path generation. Does not perform permission
+	 * checks (handled separately for rendering).
+	 * @param {number[]} pids - Post IDs to resolve
+	 * @param {number} uid - User ID for path generation (post order can depend on user settings)
+	 * @returns {Promise<Object.<number, string>>} Map of pid -> path (e.g. '/topic/1/slug/2')
+	 */
+	Posts.resolvePostReferencePaths = async function (pids, uid) {
+		if (!Array.isArray(pids) || pids.length === 0) {
+			return {};
+		}
+		const unique = [...new Set(pids)];
+		const exists = await Posts.exists(unique);
+		const existingPids = unique.filter((pid, i) => exists[i]);
+		if (existingPids.length === 0) {
+			return {};
+		}
+		const paths = await Posts.generatePostPaths(existingPids, uid);
+		const result = {};
+		existingPids.forEach((pid, i) => {
+			if (paths[i]) {
+				result[pid] = paths[i];
+			}
+		});
+		return result;
+	};
 };
