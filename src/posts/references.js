@@ -1,5 +1,7 @@
 'use strict';
 
+const privileges = require('../privileges');
+
 /**
  * Post/topic reference links (@post-number) for answers and comments.
  *
@@ -77,5 +79,21 @@ module.exports = function (Posts) {
 			}
 		});
 		return result;
+	};
+
+	/**
+	 * Return which of the given post IDs the user is allowed to view (topics:read).
+	 * Used before link rendering so references to posts the viewer cannot see
+	 * stay as plain @number text.
+	 * @param {number[]} pids - Post IDs to check
+	 * @param {number} uid - Viewer user ID
+	 * @returns {Promise<number[]>} Pids the user may read (subset of input)
+	 */
+	Posts.getVisiblePostReferencePids = async function (pids, uid) {
+		if (!Array.isArray(pids) || pids.length === 0) {
+			return [];
+		}
+		const filtered = await privileges.posts.filter('topics:read', pids, uid);
+		return filtered || [];
 	};
 };
