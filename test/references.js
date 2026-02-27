@@ -88,8 +88,12 @@ describe('Post reference links (@post-number)', () => {
 			assert.strictEqual(refs.length, 2);
 			assert.strictEqual(refs[0].pid, 23);
 			assert.strictEqual(refs[1].pid, 23);
+			// '@23 first and @23 again'
+			// 0-based indices: first '@' at 0, second '@' at 14.
 			assert.strictEqual(refs[0].start, 0);
-			assert.strictEqual(refs[1].start, 16);
+			assert.strictEqual(refs[0].end, 3);   // '@23' => [0, 3)
+			assert.strictEqual(refs[1].start, 14);
+			assert.strictEqual(refs[1].end, 17);  // '@23' => [14, 17)
 		});
 
 		it('should not overlap @2 and @23 as single match', () => {
