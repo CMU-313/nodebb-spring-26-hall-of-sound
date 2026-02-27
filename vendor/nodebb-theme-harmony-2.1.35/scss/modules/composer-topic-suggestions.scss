@@ -1,0 +1,22 @@
+// Related topics in new-topic composer (only)
+.composer-topic-suggestions {
+	max-height: 12rem;
+	overflow-y: auto;
+
+	.composer-topic-suggestions-list {
+		border-radius: var(--bs-border-radius, 0.25rem);
+	}
+
+	.composer-topic-suggestion-item {
+		padding: 0.35rem 0.5rem;
+		text-decoration: none;
+
+		&:hover {
+			text-decoration: none;
+		}
+	}
+
+	.composer-topic-suggestions-meta {
+		font-size: 0.85em;
+	}
+}
