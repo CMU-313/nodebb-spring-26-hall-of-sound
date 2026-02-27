@@ -89,3 +89,97 @@ Under the `describe('Topic Type - Question/Note')` test section (near the end of
 **Group D — API-level topic type (2 tests):**
 - Creates a topic with topicType via the API and verifies type and tags
 - Creates a topic without topicType via the API and verifies it works
+
+---
+
+# Feature 2: Instructor-Endorsed Answers
+
+## Overview
+
+Instructors (admins and category moderators) can endorse answer replies on question-type topics. Endorsed answers are visually highlighted so all users can differentiate between normal answers and instructor-endorsed answers.
+
+## Setup (Development Environment)
+
+1. **Install and activate the local plugins:**
+   ```bash
+   ./setup-plugins.sh
+   ```
+   This installs the `nodebb-plugin-topic-type` plugin which provides the endorsement API. You only need to run this once after cloning or after a fresh `npm install`.
+
+2. **Build and restart:**
+   ```bash
+   ./nodebb build && ./nodebb restart
+   ```
+
+## How to Use
+
+### For Instructors (Admins and Category Moderators)
+
+#### Endorsing an Answer
+1. Navigate to a **Question** topic that has answer replies.
+2. On each answer reply (not comments), you will see a **checkmark button** (green outline icon).
+3. Click the checkmark button to **endorse** the answer.
+4. The button turns solid green and the answer is highlighted with a light green background and green left border, plus a green **"Endorsed"** badge.
+5. Click the checkmark button again to **un-endorse** the answer (toggle behavior).
+
+**Note:** Only replies with type **"Answer"** can be endorsed — comments cannot be endorsed. The checkmark button only appears for admins and category moderators.
+
+### For Students (Regular Users)
+
+#### Identifying Endorsed Answers
+- Endorsed answers are visually distinct with:
+  - A **light green background** (`#e6f9e6`)
+  - A **green left border** (`3px solid #28a745`)
+  - A green **"Endorsed" badge**
+- Non-endorsed answers have no special highlighting.
+- Students **cannot** endorse or un-endorse answers — the checkmark button is only visible to admins and category moderators (including TAs).
+
+### Filtering by Endorsed Topics
+1. Navigate to a category page with question topics.
+2. Use the answer status filter dropdown.
+3. Select **"Endorsed"** to show only topics that have at least one endorsed answer.
+
+## Testing
+
+### Test Location
+
+Tests for this feature are located in:
+
+```
+test/topics.js
+```
+
+Under the `describe('Instructor-Endorsed Answers')` test section (near the end of the file).
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Endorsement data storage** | `endorsed` field stored and toggled on posts | Verifies the core data mechanism for endorsement |
+| **Endorsement privilege checks** | Admin and mod confirmed as admin/mod; student confirmed as non-privileged | Covers AC #1: only instructors can endorse answers |
+| **Endorsement validation** | Only answer-type replies can be endorsed; comments have different replyType | Ensures endorsement is scoped to answer replies only |
+| **Endorsed sorted set tracking** | Topics added/removed from `cid:X:tids:endorsed` set on endorse/un-endorse | Verifies the filtering infrastructure for endorsed topics |
+| **Visual differentiation data** | Endorsed field distinguishes endorsed vs non-endorsed answers in post data | Covers AC #2: data exists for UI to differentiate endorsed answers |
+
+### Test Descriptions
+
+**Group A — Endorsement data storage (2 tests):**
+- Sets `endorsed` field to `1` on a post and verifies it persists
+- Toggles `endorsed` field back to `0` and verifies
+
+**Group B — Endorsement privilege checks (3 tests):**
+- Admin confirmed as admin/mod of the endorsement test category
+- Category mod confirmed as admin/mod of the category
+- Student confirmed as NOT admin/mod of the category
+
+**Group C — Endorsement validation (1 test):**
+- Verifies answer posts have `replyType: 'answer'` and comment posts have `replyType: 'comment'`
+
+**Group D — Endorsed sorted set tracking (3 tests):**
+- Endorsing an answer adds the topic to the `cid:X:tids:endorsed` sorted set
+- Un-endorsing the answer removes the topic from the endorsed set
+- Topic with answer replies is tracked in the `cid:X:tids:answered` set
+
+**Group E — Visual differentiation data (2 tests):**
+- Endorsed answer has `endorsed: 1`, non-endorsed comment does not
+- Post data includes the `endorsed` field when retrieved

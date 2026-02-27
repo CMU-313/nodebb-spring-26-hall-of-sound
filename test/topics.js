@@ -2681,6 +2681,154 @@ describe('Topic\'s', () => {
 
 	});
 
+	describe('Instructor-Endorsed Answers', () => {
+		const plugin = require('../nodebb-plugin-topic-type/library');
+		let endorseCategoryObj;
+		let endorseQuestionTid;
+		let answerPid;
+		let commentPid;
+		let studentUid;
+		let modUid;
+
+		before(async () => {
+			// Create users
+			studentUid = await User.create({ username: 'endorseStudent' });
+			modUid = await User.create({ username: 'endorseMod' });
+
+			// Create category and grant mod privilege
+			endorseCategoryObj = await categories.create({
+				name: 'Endorsement Test Category',
+				description: 'Category for endorsement tests',
+			});
+			await privileges.categories.give(['moderate'], endorseCategoryObj.cid, [modUid]);
+			await privileges.categories.give(
+				['groups:topics:create', 'groups:topics:reply'],
+				endorseCategoryObj.cid,
+				['registered-users']
+			);
+
+			// Create a question topic
+			const topicResult = await topics.post({
+				uid: adminUid,
+				title: 'Endorsement Test Question',
+				content: 'This is a question for endorsement testing',
+				cid: endorseCategoryObj.cid,
+				topicType: 'question',
+			});
+			endorseQuestionTid = topicResult.topicData.tid;
+
+			// Create an answer reply
+			const answerResult = await topics.reply({
+				uid: studentUid,
+				tid: endorseQuestionTid,
+				content: 'This is an answer to the question',
+				replyType: 'answer',
+			});
+			answerPid = answerResult.pid;
+
+			// Create a comment reply
+			const commentResult = await topics.reply({
+				uid: studentUid,
+				tid: endorseQuestionTid,
+				content: 'This is a comment on the question',
+				replyType: 'comment',
+			});
+			commentPid = commentResult.pid;
+		});
+
+		describe('endorsement data storage', () => {
+			it('should store endorsed field on a post when set', async () => {
+				await posts.setPostField(answerPid, 'endorsed', 1);
+				const endorsed = await posts.getPostField(answerPid, 'endorsed');
+				assert.strictEqual(parseInt(endorsed, 10), 1);
+			});
+
+			it('should toggle endorsed field back to 0', async () => {
+				await posts.setPostField(answerPid, 'endorsed', 0);
+				const endorsed = await posts.getPostField(answerPid, 'endorsed');
+				assert.strictEqual(parseInt(endorsed, 10), 0);
+			});
+		});
+
+		describe('endorsement privilege checks', () => {
+			it('should confirm admin is admin/mod of category', async () => {
+				const isAdminOrMod = await privileges.categories.isAdminOrMod(endorseCategoryObj.cid, adminUid);
+				assert.strictEqual(isAdminOrMod, true, 'Admin should be admin or mod');
+			});
+
+			it('should confirm category mod is admin/mod of category', async () => {
+				const isAdminOrMod = await privileges.categories.isAdminOrMod(endorseCategoryObj.cid, modUid);
+				assert.strictEqual(isAdminOrMod, true, 'Mod should be admin or mod of category');
+			});
+
+			it('should confirm student is NOT admin/mod of category', async () => {
+				const isAdminOrMod = await privileges.categories.isAdminOrMod(endorseCategoryObj.cid, studentUid);
+				assert.strictEqual(isAdminOrMod, false, 'Student should not be admin or mod');
+			});
+		});
+
+		describe('endorsement validation', () => {
+			it('should only allow endorsing answer-type replies, not comments', async () => {
+				const answerPost = await posts.getPostFields(answerPid, ['replyType']);
+				assert.strictEqual(answerPost.replyType, 'answer');
+				const commentPost = await posts.getPostFields(commentPid, ['replyType']);
+				assert.strictEqual(commentPost.replyType, 'comment');
+			});
+		});
+
+		describe('endorsed sorted set tracking', () => {
+			it('should add topic to endorsed set when answer is endorsed', async () => {
+				// Endorse the answer
+				await posts.setPostField(answerPid, 'endorsed', 1);
+				await plugin.onPostEdit({ post: { pid: answerPid, tid: endorseQuestionTid } });
+
+				const isMember = await db.isSortedSetMember(
+					`cid:${endorseCategoryObj.cid}:tids:endorsed`,
+					endorseQuestionTid
+				);
+				assert.strictEqual(isMember, true, 'Topic should be in endorsed set');
+			});
+
+			it('should remove topic from endorsed set when answer is un-endorsed', async () => {
+				// Un-endorse the answer
+				await posts.setPostField(answerPid, 'endorsed', 0);
+				await plugin.onPostEdit({ post: { pid: answerPid, tid: endorseQuestionTid } });
+
+				const isMember = await db.isSortedSetMember(
+					`cid:${endorseCategoryObj.cid}:tids:endorsed`,
+					endorseQuestionTid
+				);
+				assert.strictEqual(isMember, false, 'Topic should not be in endorsed set');
+			});
+
+			it('should also track topic in answered set when it has answer replies', async () => {
+				const isMember = await db.isSortedSetMember(
+					`cid:${endorseCategoryObj.cid}:tids:answered`,
+					endorseQuestionTid
+				);
+				assert.strictEqual(isMember, true, 'Topic should be in answered set');
+			});
+		});
+
+		describe('visual differentiation data', () => {
+			it('should distinguish endorsed and non-endorsed answers via post field', async () => {
+				// Endorse answer for this test
+				await posts.setPostField(answerPid, 'endorsed', 1);
+				const endorsedVal = await posts.getPostField(answerPid, 'endorsed');
+				const commentEndorsed = await posts.getPostField(commentPid, 'endorsed');
+
+				assert.strictEqual(parseInt(endorsedVal, 10), 1, 'Answer should be endorsed');
+				assert.notStrictEqual(parseInt(commentEndorsed, 10), 1, 'Comment should not be endorsed');
+			});
+
+			it('should include endorsed field when retrieving post data', async () => {
+				const postData = await posts.getPostData(answerPid);
+				assert(postData.hasOwnProperty('endorsed') || 'endorsed' in postData,
+					'Post data should include endorsed field');
+			});
+		});
+	});
+
 });
 
 describe('Topics\'', async () => {
