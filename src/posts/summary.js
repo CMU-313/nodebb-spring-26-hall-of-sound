@@ -79,7 +79,11 @@ module.exports = function (Posts) {
 				return post;
 			}
 			if (options.parse) {
-				post.parsedForUid = options.uid;
+				Object.defineProperty(post, 'parsedForUid', {
+					value: options.uid,
+					enumerable: false,
+					configurable: true,
+				});
 				post = await Posts.parsePost(post);
 			}
 			if (options.stripTags) {
