@@ -187,7 +187,7 @@ function topicSuggestionScore(query, title) {
 	const tStr = tTokens.join(' ');
 	const exact = tStr.length >= qStr.length && tStr.includes(qStr);
 	const tSet = new Set(tTokens);
-	const overlap = qTokens.filter((t) => tSet.has(t)).length;
+	const overlap = qTokens.filter(t => tSet.has(t)).length;
 	return { exact, overlap };
 }
 
@@ -254,7 +254,11 @@ apiController.topicSuggestions = async function (req, res) {
 		return (b.timestamp || 0) - (a.timestamp || 0);
 	});
 
-	const topics = topicsWithScore.slice(0, 8).map(({ _score, ...t }) => t);
+	const topics = topicsWithScore.slice(0, 8).map((item) => {
+		const copy = { ...item };
+		delete copy._score;
+		return copy;
+	});
 	res.json({ topics: topics });
 };
 
