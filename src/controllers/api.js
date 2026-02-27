@@ -155,4 +155,69 @@ apiController.getModerators = async function (req, res) {
 	res.json({ moderators: moderators });
 };
 
-require('../promisify')(apiController, ['getConfig', 'getObject', 'getModerators']);
+const DEFAULT_SUGGESTIONS_LIMIT = 20;
+const MAX_SUGGESTIONS_LIMIT = 50;
+
+apiController.topicSuggestions = async function (req, res) {
+	const topics = require('../topics');
+	const privileges = require('../privileges');
+	const db = require('../database');
+
+	const rawQuery = (req.query.q || req.query.query || '').trim();
+	const limit = Math.min(MAX_SUGGESTIONS_LIMIT, Math.max(1, parseInt(req.query.limit, 10) || DEFAULT_SUGGESTIONS_LIMIT));
+	const uid = parseInt(req.uid, 10) || 0;
+
+	if (!rawQuery || rawQuery.length < 1) {
+		return res.json({ topics: [] });
+	}
+
+	const query = rawQuery.toLowerCase();
+	const queryTokens = query.split(/\s+/).filter(Boolean);
+	if (queryTokens.length === 0) {
+		return res.json({ topics: [] });
+	}
+
+	const maxCandidates = 500;
+	const tids = await db.getSortedSetRevRange('topics:tid', 0, maxCandidates - 1);
+	if (!tids.length) {
+		return res.json({ topics: [] });
+	}
+
+	const readableTids = await privileges.topics.filterTids('topics:read', tids, uid);
+	if (!readableTids.length) {
+		return res.json({ topics: [] });
+	}
+
+	const topicList = await topics.getTopicsFields(readableTids, ['tid', 'title']);
+	const withTitle = topicList.filter(t => t && t.title);
+
+	function tier(topic) {
+		const title = (topic.title || '').toLowerCase();
+		if (title.includes(query)) {
+			return 1;
+		}
+		const titleTokens = title.split(/\s+/).filter(Boolean);
+		const allQueryInTitle = queryTokens.every(qt => titleTokens.some(tt => tt.includes(qt) || qt.includes(tt)));
+		if (allQueryInTitle) {
+			return 2;
+		}
+		const someMatch = queryTokens.some(qt => titleTokens.some(tt => tt.includes(qt) || qt.includes(tt)));
+		return someMatch ? 3 : 4;
+	}
+
+	withTitle.sort((a, b) => {
+		const ta = tier(a);
+		const tb = tier(b);
+		if (ta !== tb) {
+			return ta - tb;
+		}
+		return a.tid - b.tid;
+	});
+
+	const filtered = withTitle.filter(t => tier(t) <= 3);
+	const result = filtered.slice(0, limit);
+
+	res.json({ topics: result });
+};
+
+require('../promisify')(apiController, ['getConfig', 'getObject', 'getModerators', 'topicSuggestions']);
