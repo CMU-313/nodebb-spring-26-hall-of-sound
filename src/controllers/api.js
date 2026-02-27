@@ -11,6 +11,7 @@ const translator = require('../translator');
 const languages = require('../languages');
 const { generateToken } = require('../middleware/csrf');
 const utils = require('../utils');
+const search = require('../search');
 
 const apiController = module.exports;
 
@@ -153,6 +154,61 @@ apiController.getConfig = async function (req, res) {
 apiController.getModerators = async function (req, res) {
 	const moderators = await categories.getModerators(req.params.cid);
 	res.json({ moderators: moderators });
+};
+
+apiController.topicSuggestions = async function (req, res) {
+	const term = String(req.query.query || '').trim();
+	if (!term || term.length < 3) {
+		return res.json({ topics: [] });
+	}
+
+	if (!plugins.hooks.hasListeners('filter:search.query')) {
+		return res.json({ topics: [] });
+	}
+
+	const data = {
+		query: term,
+		searchIn: 'titles',
+		matchWords: 'all',
+		uid: req.uid,
+		itemsPerPage: 8,
+		page: 1,
+		sortBy: 'relevance',
+		sortDirection: '',
+	};
+
+	let result;
+	try {
+		result = await search.search(data);
+	} catch (err) {
+		return res.json({ topics: [] });
+	}
+
+	const topics = [];
+	const seenTids = new Set();
+	if (result && Array.isArray(result.posts)) {
+		result.posts.forEach((post) => {
+			const topic = post && post.topic;
+			if (!topic || !topic.tid || seenTids.has(String(topic.tid))) {
+				return;
+			}
+			seenTids.add(String(topic.tid));
+			topics.push({
+				tid: topic.tid,
+				title: topic.title,
+				slug: topic.slug,
+				timestamp: topic.timestamp,
+				user: post.user,
+				teaserPid: topic.teaserPid,
+			});
+		});
+	}
+
+	if (topics.length > 8) {
+		topics.length = 8;
+	}
+
+	res.json({ topics: topics });
 };
 
 require('../promisify')(apiController, ['getConfig', 'getObject', 'getModerators']);
