@@ -94,13 +94,13 @@ describe('topic suggestions API', () => {
 
 		// Create 3 topics: one with exact "node bb", one with tokens only, one with single token
 		const { topicData: t1, postData: p1 } = await topics.post({
-			uid, cid, title: 'Node BB comparison', content: 'Post 1',
+			uid, cid, title: 'Node BB comparison', content: 'This is test content.',
 		});
 		const { topicData: t2, postData: p2 } = await topics.post({
-			uid, cid, title: 'Node and BB tips', content: 'Post 2',
+			uid, cid, title: 'Node and BB tips', content: 'Sample topic body content.',
 		});
 		const { topicData: t3, postData: p3 } = await topics.post({
-			uid, cid, title: 'Node only', content: 'Post 3',
+			uid, cid, title: 'Node only', content: 'Another post body here.',
 		});
 
 		// Mock search to return in reverse order of desired rank (token-only first, then exact, then single)
@@ -108,9 +108,21 @@ describe('topic suggestions API', () => {
 			if (data.query === 'node bb') {
 				return {
 					posts: [
-						{ pid: p3.pid, user: userData, topic: { tid: t3.tid, title: t3.title, slug: t3.slug, timestamp: p3.timestamp, teaserPid: t3.teaserPid } },
-						{ pid: p2.pid, user: userData, topic: { tid: t2.tid, title: t2.title, slug: t2.slug, timestamp: p2.timestamp, teaserPid: t2.teaserPid } },
-						{ pid: p1.pid, user: userData, topic: { tid: t1.tid, title: t1.title, slug: t1.slug, timestamp: p1.timestamp, teaserPid: t1.teaserPid } },
+						{
+							pid: p3.pid,
+							user: userData,
+							topic: { tid: t3.tid, title: t3.title, slug: t3.slug, timestamp: p3.timestamp, teaserPid: t3.teaserPid },
+						},
+						{
+							pid: p2.pid,
+							user: userData,
+							topic: { tid: t2.tid, title: t2.title, slug: t2.slug, timestamp: p2.timestamp, teaserPid: t2.teaserPid },
+						},
+						{
+							pid: p1.pid,
+							user: userData,
+							topic: { tid: t1.tid, title: t1.title, slug: t1.slug, timestamp: p1.timestamp, teaserPid: t1.teaserPid },
+						},
 					],
 					matchCount: 3,
 					pageCount: 1,
