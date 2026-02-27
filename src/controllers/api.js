@@ -164,7 +164,8 @@ apiController.topicSuggestions = async function (req, res) {
 	const db = require('../database');
 
 	const rawQuery = (req.query.q || req.query.query || '').trim();
-	const limit = Math.min(MAX_SUGGESTIONS_LIMIT, Math.max(1, parseInt(req.query.limit, 10) || DEFAULT_SUGGESTIONS_LIMIT));
+	const parsedLimit = parseInt(req.query.limit, 10) || DEFAULT_SUGGESTIONS_LIMIT;
+	const limit = Math.min(MAX_SUGGESTIONS_LIMIT, Math.max(1, parsedLimit));
 	const uid = parseInt(req.uid, 10) || 0;
 
 	if (!rawQuery || rawQuery.length < 1) {

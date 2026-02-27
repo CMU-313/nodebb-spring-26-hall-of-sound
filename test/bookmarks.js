@@ -199,12 +199,12 @@ describe('topic bookmarks', () => {
 
 		it('pagination: page and perPage return correct subset', async () => {
 			// Ensure 3 bookmarks (may already exist from previous it)
-			for (const tid of [tid1, tid2, tid3]) {
-				const { body: status } = await request.get(`${baseUrl()}/api/bookmarks/${tid}`, { jar });
-				if (!status.bookmarked) {
-					await helpers.request('post', `/api/bookmarks/${tid}`, { jar });
-				}
-			}
+			const tidsToCheck = [tid1, tid2, tid3];
+			const statuses = await Promise.all(
+				tidsToCheck.map(tid => request.get(`${baseUrl()}/api/bookmarks/${tid}`, { jar }).then(r => ({ tid, body: r.body })))
+			);
+			const toBookmark = statuses.filter(s => !s.body.bookmarked).map(s => s.tid);
+			await Promise.all(toBookmark.map(tid => helpers.request('post', `/api/bookmarks/${tid}`, { jar })));
 
 			const { response, body } = await request.get(`${baseUrl()}/api/bookmarks?page=1&perPage=2`, { jar });
 			assert.strictEqual(response.statusCode, 200);

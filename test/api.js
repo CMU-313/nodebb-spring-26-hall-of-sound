@@ -387,6 +387,7 @@ describe('API', async () => {
 			'/api/user/{userslug}/theme', // from persona
 			'/api/bookmarks', // from nodebb-plugin-topic-type (PR #27)
 			'/api/topic-suggestions', // PR #39
+			'/api/v3/plugins', // plugin routes (e.g. endorse) not in core OpenAPI schema
 		];
 		paths = paths.filter(path => path.method !== '_all' && !exclusionPrefixes.some(prefix => path.path.startsWith(prefix)));
 
