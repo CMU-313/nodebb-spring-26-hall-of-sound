@@ -11,6 +11,7 @@ const translator = require('../translator');
 const languages = require('../languages');
 const { generateToken } = require('../middleware/csrf');
 const utils = require('../utils');
+const search = require('../search');
 
 const apiController = module.exports;
 
@@ -155,70 +156,59 @@ apiController.getModerators = async function (req, res) {
 	res.json({ moderators: moderators });
 };
 
-const DEFAULT_SUGGESTIONS_LIMIT = 20;
-const MAX_SUGGESTIONS_LIMIT = 50;
-
 apiController.topicSuggestions = async function (req, res) {
-	const topics = require('../topics');
-	const privileges = require('../privileges');
-	const db = require('../database');
-
-	const rawQuery = (req.query.q || req.query.query || '').trim();
-	const parsedLimit = parseInt(req.query.limit, 10) || DEFAULT_SUGGESTIONS_LIMIT;
-	const limit = Math.min(MAX_SUGGESTIONS_LIMIT, Math.max(1, parsedLimit));
-	const uid = parseInt(req.uid, 10) || 0;
-
-	if (!rawQuery || rawQuery.length < 1) {
+	const term = String(req.query.query || '').trim();
+	if (!term || term.length < 3) {
 		return res.json({ topics: [] });
 	}
 
-	const query = rawQuery.toLowerCase();
-	const queryTokens = query.split(/\s+/).filter(Boolean);
-	if (queryTokens.length === 0) {
+	if (!plugins.hooks.hasListeners('filter:search.query')) {
 		return res.json({ topics: [] });
 	}
 
-	const maxCandidates = 500;
-	const tids = await db.getSortedSetRevRange('topics:tid', 0, maxCandidates - 1);
-	if (!tids.length) {
+	const data = {
+		query: term,
+		searchIn: 'titles',
+		matchWords: 'all',
+		uid: req.uid,
+		itemsPerPage: 8,
+		page: 1,
+		sortBy: 'relevance',
+		sortDirection: '',
+	};
+
+	let result;
+	try {
+		result = await search.search(data);
+	} catch (err) {
 		return res.json({ topics: [] });
 	}
 
-	const readableTids = await privileges.topics.filterTids('topics:read', tids, uid);
-	if (!readableTids.length) {
-		return res.json({ topics: [] });
+	const topics = [];
+	const seenTids = new Set();
+	if (result && Array.isArray(result.posts)) {
+		result.posts.forEach((post) => {
+			const topic = post && post.topic;
+			if (!topic || !topic.tid || seenTids.has(String(topic.tid))) {
+				return;
+			}
+			seenTids.add(String(topic.tid));
+			topics.push({
+				tid: topic.tid,
+				title: topic.title,
+				slug: topic.slug,
+				timestamp: topic.timestamp,
+				user: post.user,
+				teaserPid: topic.teaserPid,
+			});
+		});
 	}
 
-	const topicList = await topics.getTopicsFields(readableTids, ['tid', 'title']);
-	const withTitle = topicList.filter(t => t && t.title);
-
-	function tier(topic) {
-		const title = (topic.title || '').toLowerCase();
-		if (title.includes(query)) {
-			return 1;
-		}
-		const titleTokens = title.split(/\s+/).filter(Boolean);
-		const allQueryInTitle = queryTokens.every(qt => titleTokens.some(tt => tt.includes(qt) || qt.includes(tt)));
-		if (allQueryInTitle) {
-			return 2;
-		}
-		const someMatch = queryTokens.some(qt => titleTokens.some(tt => tt.includes(qt) || qt.includes(tt)));
-		return someMatch ? 3 : 4;
+	if (topics.length > 8) {
+		topics.length = 8;
 	}
 
-	withTitle.sort((a, b) => {
-		const ta = tier(a);
-		const tb = tier(b);
-		if (ta !== tb) {
-			return ta - tb;
-		}
-		return a.tid - b.tid;
-	});
-
-	const filtered = withTitle.filter(t => tier(t) <= 3);
-	const result = filtered.slice(0, limit);
-
-	res.json({ topics: result });
+	res.json({ topics: topics });
 };
 
-require('../promisify')(apiController, ['getConfig', 'getObject', 'getModerators', 'topicSuggestions']);
+require('../promisify')(apiController, ['getConfig', 'getObject', 'getModerators']);
