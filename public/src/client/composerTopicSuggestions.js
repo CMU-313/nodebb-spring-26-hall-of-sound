@@ -19,12 +19,11 @@ define('forum/composerTopicSuggestions', ['api'], function (api) {
 			}
 			const wrapper = $(
 				'<div data-component="composer/topic-suggestions" class="composer-topic-suggestions w-100 mt-2 hidden">' +
-				'<div class="composer-topic-suggestions-header small text-muted mb-1 hidden"></div>' +
+				'<div class="small text-muted mb-1">Related topics</div>' +
 				'<div class="composer-topic-suggestions-list list-group list-group-flush small"></div>' +
 				'</div>'
 			);
 			titleContainer.after(wrapper);
-			const headerEl = wrapper.find('.composer-topic-suggestions-header');
 			const listEl = wrapper.find('.composer-topic-suggestions-list');
 			const titleInput = postContainer.find('input.title');
 			if (!titleInput.length) {
@@ -41,15 +40,14 @@ define('forum/composerTopicSuggestions', ['api'], function (api) {
 						return;
 					}
 					debounceTimer = setTimeout(function () {
-						fetchAndRender(query, listEl, headerEl, wrapper);
+						fetchAndRender(query, listEl, wrapper);
 					}, DEBOUNCE_MS);
 				});
 		});
 	}
 
-	function fetchAndRender(query, listEl, headerEl, wrapper) {
-		headerEl.addClass('hidden').empty();
-		listEl.html('<div class="list-group-item text-muted text-center"><i class="fa fa-spinner fa-spin me-1"></i>Searching…</div>');
+	function fetchAndRender(query, listEl, wrapper) {
+		listEl.html('<div class="list-group-item text-muted text-center"><i class="fa fa-spinner fa-spin me-1"></i>Loading...</div>');
 		wrapper.removeClass('hidden');
 		api.get('/api/topic-suggestions', { query: query })
 			.then(function (payload) {
@@ -59,7 +57,6 @@ define('forum/composerTopicSuggestions', ['api'], function (api) {
 					wrapper.addClass('hidden');
 					return;
 				}
-				headerEl.text('Related topics (to avoid duplicates)').removeClass('hidden');
 				const baseUrl = (typeof config !== 'undefined' && config.relative_path) ? config.relative_path : '';
 				topics.forEach(function (topic) {
 					const href = baseUrl + '/topic/' + (topic.slug || topic.tid);
@@ -81,7 +78,6 @@ define('forum/composerTopicSuggestions', ['api'], function (api) {
 			})
 			.catch(function () {
 				listEl.empty();
-				headerEl.addClass('hidden').empty();
 				wrapper.addClass('hidden');
 			});
 	}
