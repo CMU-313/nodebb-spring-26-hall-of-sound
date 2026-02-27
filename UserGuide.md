@@ -2,24 +2,30 @@
 
 ---
 
+# Development Environment Setup
+
+1. **Install and activate local plugins:**
+   ```bash
+   ./setup-plugins.sh
+   ```
+   This installs and activates local plugins (including `nodebb-plugin-topic-type`). Run once after cloning or after a fresh `npm install`.
+
+2. **Build and restart NodeBB:**
+   ```bash
+   ./nodebb build && ./nodebb restart
+   ```
+
+3. **Optional: test category moderator behavior**
+   Assign the **moderate** privilege to a user for a specific category via:
+   `ACP > Manage > Categories > [Category] > Privileges`.
+
+---
+
 # Feature 1: Question/Note Topic Type
 
 ## Overview
 
 This feature allows users to classify topics as either **Question** or **Note** when creating them. Question topics allows for additional features like answer/comment reply types, instructor endorsement, and filtering by answered/unanswered/endorsed status.
-
-## Setup (Development Environment)
-
-1. **Install and activate the local plugins:**
-   ```bash
-   ./setup-plugins.sh
-   ```
-   This installs the `nodebb-plugin-topic-type` plugin and activates it in NodeBB. You only need to run this once after cloning or after a fresh `npm install`.
-
-2. **Build and restart:**
-   ```bash
-   ./nodebb build && ./nodebb restart
-   ```
 
 ## How to Use
 
@@ -98,19 +104,6 @@ Under the `describe('Topic Type - Question/Note')` test section (near the end of
 
 Instructors (admins and category moderators) can endorse answer replies on question-type topics. Endorsed answers are visually highlighted so all users can differentiate between normal answers and instructor-endorsed answers.
 
-## Setup (Development Environment)
-
-1. **Install and activate the local plugins:**
-   ```bash
-   ./setup-plugins.sh
-   ```
-   This installs the `nodebb-plugin-topic-type` plugin which provides the endorsement API. You only need to run this once after cloning or after a fresh `npm install`.
-
-2. **Build and restart:**
-   ```bash
-   ./nodebb build && ./nodebb restart
-   ```
-
 ## How to Use
 
 ### For Instructors (Admins and Category Moderators)
@@ -183,3 +176,99 @@ Under the `describe('Instructor-Endorsed Answers')` test section (near the end o
 **Group E — Visual differentiation data (2 tests):**
 - Endorsed answer has `endorsed: 1`, non-endorsed comment does not
 - Post data includes the `endorsed` field when retrieved
+
+---
+
+# Feature 3: Course Tags (Category Tag Whitelist)
+
+## Overview
+
+This feature implements a per-category tag whitelist system. Category moderators (instructors/TAs) and admins can create, edit, and delete course-specific tags. Students can only select from staff-defined tags when creating or editing topics.
+
+## How to Use
+
+### For Instructors/TAs (Category Moderators and Admins)
+
+#### Creating Tags by Posting Topics
+1. Navigate to a category and click **New Topic**.
+2. Type any tag in the tag input field — even tags not yet on the whitelist.
+3. Submit the topic. Any new tags you used are **automatically added** to the category's tag whitelist.
+
+#### Managing Tags from the Category Page
+1. Navigate to a category page where you have moderator privileges.
+2. Open the **Tools** dropdown (gear icon).
+3. Click **Manage Tag Whitelist**.
+4. A modal opens pre-populated with the current whitelisted tags.
+5. Add or remove tags as needed and click **Save**.
+6. Removing a tag from the whitelist also **removes it from all existing topics** in that category.
+
+#### Managing Tags from the Admin Control Panel (ACP)
+1. Go to **ACP > Manage > Categories > [Category]**.
+2. Find the **Tag Whitelist** section.
+3. Click the **Add Tag** button to open a modal for adding tags.
+4. Tags added here become available for students to select.
+
+**Note:** Category moderators can only modify the tag whitelist in the ACP — they cannot change other category settings (e.g., name, description).
+
+### For Students
+
+#### Creating or Editing Topics with Tags
+1. Navigate to a category and click **New Topic**.
+2. In the tag input field, you will see a dropdown of available (whitelisted) tags.
+3. Select from the available tags. You **cannot** type custom tags.
+4. If no tags have been whitelisted by staff, you cannot add any tags at all.
+
+#### Viewing Tags
+- Tags appear on each topic in the **topic list view** within a category.
+- Tags are also displayed on the **topic page** itself.
+- Use the **tag filter** on category pages to filter topics by specific tags.
+
+## Testing
+
+### Test Location
+
+Tests for this feature are located in:
+
+```
+test/topics.js
+```
+
+Under the `describe('Course Tags - Tag Whitelist')` test section.
+
+Additional pre-existing tests are in:
+
+```
+test/categories.js
+```
+
+Under the `describe('tag whitelist')` test section.
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Staff tag creation** | Admin and mod can post with new tags that auto-add to whitelist; mod can update whitelist via API; mod cannot change other category fields | Covers AC #1: instructors/TAs can create, edit tags through staff-only mechanisms |
+| **Student tag restrictions** | Student can use whitelisted tags; student rejected for non-whitelisted tags; student rejected when whitelist is empty | Covers AC #2: students cannot create new tags, can only select from staff-defined tags |
+| **Tag display and persistence** | Tags persist on topics; tags included in topic API response with value field | Covers AC #3: tags are clearly displayed on topic pages and listings |
+| **Whitelist management - tag removal cascade** | Removing tag from whitelist removes it from existing topics; other tags preserved | Covers AC #1 (delete): staff can delete tags and changes cascade to topics |
+
+### Test Descriptions
+
+**Group A — Staff tag creation (4 tests):**
+- Admin posts topic with new tags → tags auto-added to category whitelist
+- Category mod posts topic with new tag → tag auto-added to whitelist
+- Category mod updates whitelist via API → whitelist updated correctly
+- Category mod cannot update non-tag category fields → `no-privileges` error
+
+**Group B — Student tag restrictions (3 tests):**
+- Student posts with whitelisted tag → succeeds
+- Student posts with non-whitelisted tag → `tag-not-allowed` error
+- Student posts any tag when whitelist is empty → `tag-not-allowed` error
+
+**Group C — Tag display and persistence (2 tests):**
+- Tags persist on topic and are retrievable via `getTopicTags`
+- Tags are included in topic data returned by the API
+
+**Group D — Whitelist management - tag removal cascade (2 tests):**
+- Removing a tag from whitelist removes it from all existing topics in the category
+- Remaining whitelisted tags are preserved on topics after removal

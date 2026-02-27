@@ -2829,6 +2829,206 @@ describe('Topic\'s', () => {
 		});
 	});
 
+	describe('Course Tags - Tag Whitelist', () => {
+		const apiCategories = require('../src/api/categories');
+		let courseTagCid;
+		let studentUid;
+		let courseModUid;
+		let adminTopicData;
+		let modTopicData;
+
+		before(async () => {
+			// Create users
+			studentUid = await User.create({ username: 'courseStudent' });
+			courseModUid = await User.create({ username: 'courseMod' });
+
+			// Create a dedicated category (no whitelist initially)
+			const cat = await categories.create({
+				name: 'Course Tags Test Category',
+				description: 'Category for course tag whitelist tests',
+			});
+			courseTagCid = cat.cid;
+
+			// Grant moderate privilege to courseModUid only
+			await privileges.categories.give(['moderate'], courseTagCid, [courseModUid]);
+
+			// Grant basic topic posting privileges to all registered users (including student)
+			await privileges.categories.give(['groups:topics:create', 'groups:topics:tag'], courseTagCid, ['registered-users']);
+		});
+
+		describe('staff tag creation', () => {
+			it('should allow admin to post topic with new tags and auto-add them to whitelist', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Admin Course Topic',
+					content: 'Admin created topic with new tags',
+					cid: courseTagCid,
+					tags: ['lecture', 'exam'],
+				});
+				adminTopicData = result.topicData;
+				const topicTags = await topics.getTopicTags(adminTopicData.tid);
+				assert(topicTags.includes('lecture'), 'Topic should have lecture tag');
+				assert(topicTags.includes('exam'), 'Topic should have exam tag');
+
+				const whitelist = await db.getSortedSetRange(`cid:${courseTagCid}:tag:whitelist`, 0, -1);
+				assert(whitelist.includes('lecture'), 'lecture should be in whitelist');
+				assert(whitelist.includes('exam'), 'exam should be in whitelist');
+			});
+
+			it('should allow category mod to post topic with new tags and auto-add them to whitelist', async () => {
+				const result = await topics.post({
+					uid: courseModUid,
+					title: 'Mod Course Topic',
+					content: 'Mod created topic with new tag',
+					cid: courseTagCid,
+					tags: ['lab'],
+				});
+				modTopicData = result.topicData;
+				const topicTags = await topics.getTopicTags(modTopicData.tid);
+				assert(topicTags.includes('lab'), 'Topic should have lab tag');
+
+				const whitelist = await db.getSortedSetRange(`cid:${courseTagCid}:tag:whitelist`, 0, -1);
+				assert(whitelist.includes('lab'), 'lab should be in whitelist');
+			});
+
+			it('should allow category mod to update whitelist via API', async () => {
+				await apiCategories.update(
+					{ uid: courseModUid },
+					{ cid: courseTagCid, values: { tagWhitelist: 'lecture,exam,lab,quiz' } }
+				);
+				const whitelist = await db.getSortedSetRange(`cid:${courseTagCid}:tag:whitelist`, 0, -1);
+				assert.deepStrictEqual(whitelist, ['lecture', 'exam', 'lab', 'quiz']);
+			});
+
+			it('should not allow category mod to update non-tag category fields', async () => {
+				let err;
+				try {
+					await apiCategories.update(
+						{ uid: courseModUid },
+						{ cid: courseTagCid, values: { name: 'Hacked Category Name' } }
+					);
+				} catch (_err) {
+					err = _err;
+				}
+				assert(err, 'Should have thrown an error');
+				assert.strictEqual(err.message, '[[error:no-privileges]]');
+			});
+		});
+
+		describe('student tag restrictions', () => {
+			it('should allow student to post with whitelisted tags', async () => {
+				const result = await topics.post({
+					uid: studentUid,
+					title: 'Student Topic With Tags',
+					content: 'Student using whitelisted tags',
+					cid: courseTagCid,
+					tags: ['lecture'],
+				});
+				const topicTags = await topics.getTopicTags(result.topicData.tid);
+				assert(topicTags.includes('lecture'), 'Topic should have lecture tag');
+			});
+
+			it('should not allow student to post with non-whitelisted tag', async () => {
+				let err;
+				try {
+					await topics.post({
+						uid: studentUid,
+						title: 'Student Bad Tags Topic',
+						content: 'Student using non-whitelisted tag',
+						cid: courseTagCid,
+						tags: ['lecture', 'custom'],
+					});
+				} catch (_err) {
+					err = _err;
+				}
+				assert(err, 'Should have thrown an error');
+				assert.strictEqual(err.message, '[[error:tag-not-allowed]]');
+			});
+
+			it('should not allow student to post tags when whitelist is empty', async () => {
+				// Create a separate category with no whitelist
+				const emptyCat = await categories.create({
+					name: 'Empty Whitelist Category',
+					description: 'No tags whitelisted',
+				});
+				await privileges.categories.give(
+					['groups:topics:create', 'groups:topics:tag'],
+					emptyCat.cid,
+					['registered-users']
+				);
+
+				let err;
+				try {
+					await topics.post({
+						uid: studentUid,
+						title: 'Student Empty WL Topic',
+						content: 'Student trying tags on empty whitelist',
+						cid: emptyCat.cid,
+						tags: ['any'],
+					});
+				} catch (_err) {
+					err = _err;
+				}
+				assert(err, 'Should have thrown an error');
+				assert.strictEqual(err.message, '[[error:tag-not-allowed]]');
+			});
+		});
+
+		describe('tag display and persistence', () => {
+			it('should persist tags on topic and retrieve them', async () => {
+				const topicTags = await topics.getTopicTags(adminTopicData.tid);
+				assert(topicTags.includes('lecture'), 'lecture tag should persist');
+				assert(topicTags.includes('exam'), 'exam tag should persist');
+			});
+
+			it('should include tags in topic data via API', async () => {
+				const topicData = await apiTopics.get({ uid: studentUid }, { tid: adminTopicData.tid });
+				assert(topicData, 'Topic data should be returned');
+				assert(Array.isArray(topicData.tags), 'tags should be an array');
+				const tagValues = topicData.tags.map(t => t.value);
+				assert(tagValues.includes('lecture'), 'lecture should be in topic tags');
+				assert(tagValues.includes('exam'), 'exam should be in topic tags');
+			});
+		});
+
+		describe('whitelist management - tag removal cascade', () => {
+			let cascadeTopicData;
+
+			before(async () => {
+				// Create a topic with quiz tag (quiz is in whitelist from earlier test)
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Cascade Test Topic',
+					content: 'Topic for testing tag removal cascade',
+					cid: courseTagCid,
+					tags: ['lecture', 'quiz'],
+				});
+				cascadeTopicData = result.topicData;
+			});
+
+			it('should remove tag from existing topics when removed from whitelist', async () => {
+				// Verify quiz tag exists on topic before removal
+				let topicTags = await topics.getTopicTags(cascadeTopicData.tid);
+				assert(topicTags.includes('quiz'), 'quiz tag should exist before removal');
+
+				// Remove quiz from whitelist
+				await apiCategories.update(
+					{ uid: adminUid },
+					{ cid: courseTagCid, values: { tagWhitelist: 'lecture,exam,lab' } }
+				);
+
+				// Verify quiz tag removed from topic
+				topicTags = await topics.getTopicTags(cascadeTopicData.tid);
+				assert(!topicTags.includes('quiz'), 'quiz tag should be removed from topic');
+			});
+
+			it('should preserve remaining whitelisted tags on topics after removal', async () => {
+				const topicTags = await topics.getTopicTags(cascadeTopicData.tid);
+				assert(topicTags.includes('lecture'), 'lecture tag should still be on topic');
+			});
+		});
+	});
+
 });
 
 describe('Topics\'', async () => {
