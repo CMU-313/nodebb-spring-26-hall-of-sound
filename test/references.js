@@ -240,5 +240,17 @@ describe('Post reference links (@post-number)', () => {
 			assert.ok(summaries[0].content.includes('<a href="'));
 			assert.ok(summaries[0].content.includes(`>@${mainPid}</a>`));
 		});
+
+		it('should linkify @post refs when posts are loaded via getPostsByPids (topic/socket path)', async () => {
+			const replyWithRef = await topics.reply({
+				uid: authorUid,
+				tid: topicData.tid,
+				content: `Refer to @${mainPid} in this reply`,
+			});
+			const loaded = await posts.getPostsByPids([replyWithRef.pid], viewerUid);
+			assert.strictEqual(loaded.length, 1);
+			assert.ok(loaded[0].content.includes('<a href="'));
+			assert.ok(loaded[0].content.includes(`>@${mainPid}</a>`));
+		});
 	});
 });
