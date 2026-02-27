@@ -1,0 +1,68 @@
+get:
+  tags:
+    - search
+  summary: Get topic suggestions for composer
+  description: Returns related topics matching the query for the new-topic composer (e.g. to avoid duplicates).
+  parameters:
+    - in: query
+      name: query
+      required: true
+      schema:
+        type: string
+        minLength: 3
+      description: Search term (minimum 3 characters)
+      example: "test"
+  responses:
+    "200":
+      description: List of suggested topics
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - topics
+            properties:
+              topics:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    tid:
+                      type: number
+                      description: Topic ID
+                    title:
+                      type: string
+                      description: Topic title
+                    slug:
+                      type: string
+                      description: Topic slug for URL
+                    timestamp:
+                      type: number
+                      description: Unix timestamp
+                    user:
+                      type: object
+                      description: Topic author summary
+                      properties:
+                        uid:
+                          type: number
+                        username:
+                          type: string
+                        userslug:
+                          type: string
+                        picture:
+                          type: string
+                          nullable: true
+                        status:
+                          type: string
+                        displayname:
+                          type: string
+                        icon:bgColor:
+                          type: string
+                        icon:text:
+                          type: string
+                        isLocal:
+                          type: boolean
+                    teaserPid:
+                      type: number
+                      nullable: true
+                      description: PID of teaser post
