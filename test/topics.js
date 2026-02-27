@@ -2501,6 +2501,186 @@ describe('Topic\'s', () => {
 			assert(score < Date.now(), 'Post in cid:<cid>:pids has wrong score, it should not be in the future');
 		});
 	});
+
+	describe('Topic Type - Question/Note', () => {
+		let typeCategoryObj;
+		let questionTopicData;
+		let noteTopicData;
+
+		before(async () => {
+			typeCategoryObj = await categories.create({
+				name: 'Topic Type Test Category',
+				description: 'Category for topic type tests',
+			});
+		});
+
+		describe('topic creation with topicType', () => {
+			it('should create a topic with topicType question', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Question Topic Test',
+					content: 'This is a question topic',
+					cid: typeCategoryObj.cid,
+					topicType: 'question',
+				});
+				assert.strictEqual(result.topicData.topicType, 'question');
+				questionTopicData = result.topicData;
+			});
+
+			it('should create a topic with topicType note', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Note Topic Test',
+					content: 'This is a note topic',
+					cid: typeCategoryObj.cid,
+					topicType: 'note',
+				});
+				assert.strictEqual(result.topicData.topicType, 'note');
+				noteTopicData = result.topicData;
+			});
+
+			it('should default topicType to empty string when not provided', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'No Type Topic Test',
+					content: 'This topic has no type',
+					cid: typeCategoryObj.cid,
+				});
+				assert.strictEqual(result.topicData.topicType, '');
+			});
+
+			it('should persist topicType when retrieved', async () => {
+				const topicType = await topics.getTopicField(questionTopicData.tid, 'topicType');
+				assert.strictEqual(topicType, 'question');
+			});
+		});
+
+		describe('auto-tagging based on topicType', () => {
+			it('should auto-add Question tag for question topics', async () => {
+				const tags = await topics.getTopicTags(questionTopicData.tid);
+				assert(tags.includes('Question'), 'Expected tags to include "Question"');
+			});
+
+			it('should auto-add Note tag for note topics', async () => {
+				const tags = await topics.getTopicTags(noteTopicData.tid);
+				assert(tags.includes('Note'), 'Expected tags to include "Note"');
+			});
+
+			it('should not add type tag when topicType is not provided', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Untyped Topic',
+					content: 'No type here',
+					cid: typeCategoryObj.cid,
+				});
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				assert(!tags.includes('Question'), 'Should not have Question tag');
+				assert(!tags.includes('Note'), 'Should not have Note tag');
+			});
+
+			it('should have user tags coexist with auto type tag', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Tagged Question Topic',
+					content: 'Question with tags',
+					cid: typeCategoryObj.cid,
+					topicType: 'question',
+					tags: ['homework'],
+				});
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				assert(tags.includes('Question'), 'Expected Question tag');
+				assert(tags.includes('homework'), 'Expected homework tag');
+			});
+		});
+
+		describe('reserved tag filtering', () => {
+			it('should filter reserved tag "question" from manual tags on topic creation', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Reserved Tag Test Question',
+					content: 'Testing reserved question tag',
+					cid: typeCategoryObj.cid,
+					tags: ['question', 'homework'],
+				});
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				assert(!tags.includes('question'), 'lowercase question should be filtered out');
+				assert(tags.includes('homework'), 'homework tag should remain');
+			});
+
+			it('should filter reserved tag "note" from manual tags on topic creation', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Reserved Tag Test Note',
+					content: 'Testing reserved note tag',
+					cid: typeCategoryObj.cid,
+					tags: ['note', 'homework'],
+				});
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				assert(!tags.includes('note'), 'lowercase note should be filtered out');
+				assert(tags.includes('homework'), 'homework tag should remain');
+			});
+
+			it('should filter reserved tags case-insensitively on topic creation', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Reserved Tag Case Test',
+					content: 'Testing case insensitive filtering',
+					cid: typeCategoryObj.cid,
+					tags: ['Question', 'NOTE', 'homework'],
+				});
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				const lowerTags = tags.map(t => t.toLowerCase());
+				assert(!lowerTags.includes('question') || tags.includes('Question') === false,
+					'Manually added Question should be filtered');
+				assert(!lowerTags.includes('note'), 'NOTE should be filtered out');
+			});
+
+			it('should preserve type tag when updating topic tags', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Tag Update Preserve Test',
+					content: 'Testing tag preservation on update',
+					cid: typeCategoryObj.cid,
+					topicType: 'question',
+					tags: ['homework'],
+				});
+				await topics.updateTopicTags(result.topicData.tid, ['homework']);
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				assert(tags.includes('Question'), 'Question tag should be preserved after update');
+			});
+
+			it('should preserve type tag when deleting topic tags', async () => {
+				await apiTopics.deleteTags({ uid: adminUid }, { tid: questionTopicData.tid });
+				const tags = await topics.getTopicTags(questionTopicData.tid);
+				assert(tags.includes('Question'), 'Question tag should be preserved after delete');
+			});
+		});
+
+		describe('API-level topic type', () => {
+			it('should create a topic with topicType via API', async () => {
+				const result = await apiTopics.create({ uid: adminUid }, {
+					title: 'API Question Topic',
+					content: 'Created via API',
+					cid: typeCategoryObj.cid,
+					topicType: 'question',
+				});
+				assert.strictEqual(result.topicType, 'question');
+				const tags = await topics.getTopicTags(result.tid);
+				assert(tags.includes('Question'), 'Expected Question tag via API');
+			});
+
+			it('should create a topic without topicType via API', async () => {
+				const result = await apiTopics.create({ uid: adminUid }, {
+					title: 'API Untyped Topic',
+					content: 'No type via API',
+					cid: typeCategoryObj.cid,
+				});
+				assert.strictEqual(result.topicType, '');
+			});
+		});
+
+	});
+
 });
 
 describe('Topics\'', async () => {
