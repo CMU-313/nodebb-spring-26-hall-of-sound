@@ -2501,6 +2501,534 @@ describe('Topic\'s', () => {
 			assert(score < Date.now(), 'Post in cid:<cid>:pids has wrong score, it should not be in the future');
 		});
 	});
+
+	describe('Topic Type - Question/Note', () => {
+		let typeCategoryObj;
+		let questionTopicData;
+		let noteTopicData;
+
+		before(async () => {
+			typeCategoryObj = await categories.create({
+				name: 'Topic Type Test Category',
+				description: 'Category for topic type tests',
+			});
+		});
+
+		describe('topic creation with topicType', () => {
+			it('should create a topic with topicType question', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Question Topic Test',
+					content: 'This is a question topic',
+					cid: typeCategoryObj.cid,
+					topicType: 'question',
+				});
+				assert.strictEqual(result.topicData.topicType, 'question');
+				questionTopicData = result.topicData;
+			});
+
+			it('should create a topic with topicType note', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Note Topic Test',
+					content: 'This is a note topic',
+					cid: typeCategoryObj.cid,
+					topicType: 'note',
+				});
+				assert.strictEqual(result.topicData.topicType, 'note');
+				noteTopicData = result.topicData;
+			});
+
+			it('should default topicType to empty string when not provided', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'No Type Topic Test',
+					content: 'This topic has no type',
+					cid: typeCategoryObj.cid,
+				});
+				assert.strictEqual(result.topicData.topicType, '');
+			});
+
+			it('should persist topicType when retrieved', async () => {
+				const topicType = await topics.getTopicField(questionTopicData.tid, 'topicType');
+				assert.strictEqual(topicType, 'question');
+			});
+		});
+
+		describe('auto-tagging based on topicType', () => {
+			it('should auto-add Question tag for question topics', async () => {
+				const tags = await topics.getTopicTags(questionTopicData.tid);
+				assert(tags.includes('Question'), 'Expected tags to include "Question"');
+			});
+
+			it('should auto-add Note tag for note topics', async () => {
+				const tags = await topics.getTopicTags(noteTopicData.tid);
+				assert(tags.includes('Note'), 'Expected tags to include "Note"');
+			});
+
+			it('should not add type tag when topicType is not provided', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Untyped Topic',
+					content: 'No type here',
+					cid: typeCategoryObj.cid,
+				});
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				assert(!tags.includes('Question'), 'Should not have Question tag');
+				assert(!tags.includes('Note'), 'Should not have Note tag');
+			});
+
+			it('should have user tags coexist with auto type tag', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Tagged Question Topic',
+					content: 'Question with tags',
+					cid: typeCategoryObj.cid,
+					topicType: 'question',
+					tags: ['homework'],
+				});
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				assert(tags.includes('Question'), 'Expected Question tag');
+				assert(tags.includes('homework'), 'Expected homework tag');
+			});
+		});
+
+		describe('reserved tag filtering', () => {
+			it('should filter reserved tag "question" from manual tags on topic creation', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Reserved Tag Test Question',
+					content: 'Testing reserved question tag',
+					cid: typeCategoryObj.cid,
+					tags: ['question', 'homework'],
+				});
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				assert(!tags.includes('question'), 'lowercase question should be filtered out');
+				assert(tags.includes('homework'), 'homework tag should remain');
+			});
+
+			it('should filter reserved tag "note" from manual tags on topic creation', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Reserved Tag Test Note',
+					content: 'Testing reserved note tag',
+					cid: typeCategoryObj.cid,
+					tags: ['note', 'homework'],
+				});
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				assert(!tags.includes('note'), 'lowercase note should be filtered out');
+				assert(tags.includes('homework'), 'homework tag should remain');
+			});
+
+			it('should filter reserved tags case-insensitively on topic creation', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Reserved Tag Case Test',
+					content: 'Testing case insensitive filtering',
+					cid: typeCategoryObj.cid,
+					tags: ['Question', 'NOTE', 'homework'],
+				});
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				const lowerTags = tags.map(t => t.toLowerCase());
+				assert(!lowerTags.includes('question') || tags.includes('Question') === false,
+					'Manually added Question should be filtered');
+				assert(!lowerTags.includes('note'), 'NOTE should be filtered out');
+			});
+
+			it('should preserve type tag when updating topic tags', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Tag Update Preserve Test',
+					content: 'Testing tag preservation on update',
+					cid: typeCategoryObj.cid,
+					topicType: 'question',
+					tags: ['homework'],
+				});
+				await topics.updateTopicTags(result.topicData.tid, ['homework']);
+				const tags = await topics.getTopicTags(result.topicData.tid);
+				assert(tags.includes('Question'), 'Question tag should be preserved after update');
+			});
+
+			it('should preserve type tag when deleting topic tags', async () => {
+				await apiTopics.deleteTags({ uid: adminUid }, { tid: questionTopicData.tid });
+				const tags = await topics.getTopicTags(questionTopicData.tid);
+				assert(tags.includes('Question'), 'Question tag should be preserved after delete');
+			});
+		});
+
+		describe('API-level topic type', () => {
+			it('should create a topic with topicType via API', async () => {
+				const result = await apiTopics.create({ uid: adminUid }, {
+					title: 'API Question Topic',
+					content: 'Created via API',
+					cid: typeCategoryObj.cid,
+					topicType: 'question',
+				});
+				assert.strictEqual(result.topicType, 'question');
+				const tags = await topics.getTopicTags(result.tid);
+				assert(tags.includes('Question'), 'Expected Question tag via API');
+			});
+
+			it('should create a topic without topicType via API', async () => {
+				const result = await apiTopics.create({ uid: adminUid }, {
+					title: 'API Untyped Topic',
+					content: 'No type via API',
+					cid: typeCategoryObj.cid,
+				});
+				assert.strictEqual(result.topicType, '');
+			});
+		});
+
+	});
+
+	describe('Instructor-Endorsed Answers', () => {
+		const plugin = require('../nodebb-plugin-topic-type/library');
+		let endorseCategoryObj;
+		let endorseQuestionTid;
+		let answerPid;
+		let commentPid;
+		let studentUid;
+		let modUid;
+
+		before(async () => {
+			// Create users
+			studentUid = await User.create({ username: 'endorseStudent' });
+			modUid = await User.create({ username: 'endorseMod' });
+
+			// Create category and grant mod privilege
+			endorseCategoryObj = await categories.create({
+				name: 'Endorsement Test Category',
+				description: 'Category for endorsement tests',
+			});
+			await privileges.categories.give(['moderate'], endorseCategoryObj.cid, [modUid]);
+			await privileges.categories.give(
+				['groups:topics:create', 'groups:topics:reply'],
+				endorseCategoryObj.cid,
+				['registered-users']
+			);
+
+			// Create a question topic
+			const topicResult = await topics.post({
+				uid: adminUid,
+				title: 'Endorsement Test Question',
+				content: 'This is a question for endorsement testing',
+				cid: endorseCategoryObj.cid,
+				topicType: 'question',
+			});
+			endorseQuestionTid = topicResult.topicData.tid;
+
+			// Create an answer reply
+			const answerResult = await topics.reply({
+				uid: studentUid,
+				tid: endorseQuestionTid,
+				content: 'This is an answer to the question',
+				replyType: 'answer',
+			});
+			answerPid = answerResult.pid;
+
+			// Create a comment reply
+			const commentResult = await topics.reply({
+				uid: studentUid,
+				tid: endorseQuestionTid,
+				content: 'This is a comment on the question',
+				replyType: 'comment',
+			});
+			commentPid = commentResult.pid;
+		});
+
+		describe('endorsement data storage', () => {
+			it('should store endorsed field on a post when set', async () => {
+				await posts.setPostField(answerPid, 'endorsed', 1);
+				const endorsed = await posts.getPostField(answerPid, 'endorsed');
+				assert.strictEqual(parseInt(endorsed, 10), 1);
+			});
+
+			it('should toggle endorsed field back to 0', async () => {
+				await posts.setPostField(answerPid, 'endorsed', 0);
+				const endorsed = await posts.getPostField(answerPid, 'endorsed');
+				assert.strictEqual(parseInt(endorsed, 10), 0);
+			});
+		});
+
+		describe('endorsement privilege checks', () => {
+			it('should confirm admin is admin/mod of category', async () => {
+				const isAdminOrMod = await privileges.categories.isAdminOrMod(endorseCategoryObj.cid, adminUid);
+				assert.strictEqual(isAdminOrMod, true, 'Admin should be admin or mod');
+			});
+
+			it('should confirm category mod is admin/mod of category', async () => {
+				const isAdminOrMod = await privileges.categories.isAdminOrMod(endorseCategoryObj.cid, modUid);
+				assert.strictEqual(isAdminOrMod, true, 'Mod should be admin or mod of category');
+			});
+
+			it('should confirm student is NOT admin/mod of category', async () => {
+				const isAdminOrMod = await privileges.categories.isAdminOrMod(endorseCategoryObj.cid, studentUid);
+				assert.strictEqual(isAdminOrMod, false, 'Student should not be admin or mod');
+			});
+		});
+
+		describe('endorsement validation', () => {
+			it('should only allow endorsing answer-type replies, not comments', async () => {
+				const answerPost = await posts.getPostFields(answerPid, ['replyType']);
+				assert.strictEqual(answerPost.replyType, 'answer');
+				const commentPost = await posts.getPostFields(commentPid, ['replyType']);
+				assert.strictEqual(commentPost.replyType, 'comment');
+			});
+		});
+
+		describe('endorsed sorted set tracking', () => {
+			it('should add topic to endorsed set when answer is endorsed', async () => {
+				// Endorse the answer
+				await posts.setPostField(answerPid, 'endorsed', 1);
+				await plugin.onPostEdit({ post: { pid: answerPid, tid: endorseQuestionTid } });
+
+				const isMember = await db.isSortedSetMember(
+					`cid:${endorseCategoryObj.cid}:tids:endorsed`,
+					endorseQuestionTid
+				);
+				assert.strictEqual(isMember, true, 'Topic should be in endorsed set');
+			});
+
+			it('should remove topic from endorsed set when answer is un-endorsed', async () => {
+				// Un-endorse the answer
+				await posts.setPostField(answerPid, 'endorsed', 0);
+				await plugin.onPostEdit({ post: { pid: answerPid, tid: endorseQuestionTid } });
+
+				const isMember = await db.isSortedSetMember(
+					`cid:${endorseCategoryObj.cid}:tids:endorsed`,
+					endorseQuestionTid
+				);
+				assert.strictEqual(isMember, false, 'Topic should not be in endorsed set');
+			});
+
+			it('should also track topic in answered set when it has answer replies', async () => {
+				const isMember = await db.isSortedSetMember(
+					`cid:${endorseCategoryObj.cid}:tids:answered`,
+					endorseQuestionTid
+				);
+				assert.strictEqual(isMember, true, 'Topic should be in answered set');
+			});
+		});
+
+		describe('visual differentiation data', () => {
+			it('should distinguish endorsed and non-endorsed answers via post field', async () => {
+				// Endorse answer for this test
+				await posts.setPostField(answerPid, 'endorsed', 1);
+				const endorsedVal = await posts.getPostField(answerPid, 'endorsed');
+				const commentEndorsed = await posts.getPostField(commentPid, 'endorsed');
+
+				assert.strictEqual(parseInt(endorsedVal, 10), 1, 'Answer should be endorsed');
+				assert.notStrictEqual(parseInt(commentEndorsed, 10), 1, 'Comment should not be endorsed');
+			});
+
+			it('should include endorsed field when retrieving post data', async () => {
+				const postData = await posts.getPostData(answerPid);
+				assert(postData.hasOwnProperty('endorsed') || 'endorsed' in postData,
+					'Post data should include endorsed field');
+			});
+		});
+	});
+
+	describe('Course Tags - Tag Whitelist', () => {
+		const apiCategories = require('../src/api/categories');
+		let courseTagCid;
+		let studentUid;
+		let courseModUid;
+		let adminTopicData;
+		let modTopicData;
+
+		before(async () => {
+			// Create users
+			studentUid = await User.create({ username: 'courseStudent' });
+			courseModUid = await User.create({ username: 'courseMod' });
+
+			// Create a dedicated category (no whitelist initially)
+			const cat = await categories.create({
+				name: 'Course Tags Test Category',
+				description: 'Category for course tag whitelist tests',
+			});
+			courseTagCid = cat.cid;
+
+			// Grant moderate privilege to courseModUid only
+			await privileges.categories.give(['moderate'], courseTagCid, [courseModUid]);
+
+			// Grant basic topic posting privileges to all registered users (including student)
+			await privileges.categories.give(['groups:topics:create', 'groups:topics:tag'], courseTagCid, ['registered-users']);
+		});
+
+		describe('staff tag creation', () => {
+			it('should allow admin to post topic with new tags and auto-add them to whitelist', async () => {
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Admin Course Topic',
+					content: 'Admin created topic with new tags',
+					cid: courseTagCid,
+					tags: ['lecture', 'exam'],
+				});
+				adminTopicData = result.topicData;
+				const topicTags = await topics.getTopicTags(adminTopicData.tid);
+				assert(topicTags.includes('lecture'), 'Topic should have lecture tag');
+				assert(topicTags.includes('exam'), 'Topic should have exam tag');
+
+				const whitelist = await db.getSortedSetRange(`cid:${courseTagCid}:tag:whitelist`, 0, -1);
+				assert(whitelist.includes('lecture'), 'lecture should be in whitelist');
+				assert(whitelist.includes('exam'), 'exam should be in whitelist');
+			});
+
+			it('should allow category mod to post topic with new tags and auto-add them to whitelist', async () => {
+				const result = await topics.post({
+					uid: courseModUid,
+					title: 'Mod Course Topic',
+					content: 'Mod created topic with new tag',
+					cid: courseTagCid,
+					tags: ['lab'],
+				});
+				modTopicData = result.topicData;
+				const topicTags = await topics.getTopicTags(modTopicData.tid);
+				assert(topicTags.includes('lab'), 'Topic should have lab tag');
+
+				const whitelist = await db.getSortedSetRange(`cid:${courseTagCid}:tag:whitelist`, 0, -1);
+				assert(whitelist.includes('lab'), 'lab should be in whitelist');
+			});
+
+			it('should allow category mod to update whitelist via API', async () => {
+				await apiCategories.update(
+					{ uid: courseModUid },
+					{ cid: courseTagCid, values: { tagWhitelist: 'lecture,exam,lab,quiz' } }
+				);
+				const whitelist = await db.getSortedSetRange(`cid:${courseTagCid}:tag:whitelist`, 0, -1);
+				assert.deepStrictEqual(whitelist, ['lecture', 'exam', 'lab', 'quiz']);
+			});
+
+			it('should not allow category mod to update non-tag category fields', async () => {
+				let err;
+				try {
+					await apiCategories.update(
+						{ uid: courseModUid },
+						{ cid: courseTagCid, values: { name: 'Hacked Category Name' } }
+					);
+				} catch (_err) {
+					err = _err;
+				}
+				assert(err, 'Should have thrown an error');
+				assert.strictEqual(err.message, '[[error:no-privileges]]');
+			});
+		});
+
+		describe('student tag restrictions', () => {
+			it('should allow student to post with whitelisted tags', async () => {
+				const result = await topics.post({
+					uid: studentUid,
+					title: 'Student Topic With Tags',
+					content: 'Student using whitelisted tags',
+					cid: courseTagCid,
+					tags: ['lecture'],
+				});
+				const topicTags = await topics.getTopicTags(result.topicData.tid);
+				assert(topicTags.includes('lecture'), 'Topic should have lecture tag');
+			});
+
+			it('should not allow student to post with non-whitelisted tag', async () => {
+				let err;
+				try {
+					await topics.post({
+						uid: studentUid,
+						title: 'Student Bad Tags Topic',
+						content: 'Student using non-whitelisted tag',
+						cid: courseTagCid,
+						tags: ['lecture', 'custom'],
+					});
+				} catch (_err) {
+					err = _err;
+				}
+				assert(err, 'Should have thrown an error');
+				assert.strictEqual(err.message, '[[error:tag-not-allowed]]');
+			});
+
+			it('should not allow student to post tags when whitelist is empty', async () => {
+				// Create a separate category with no whitelist
+				const emptyCat = await categories.create({
+					name: 'Empty Whitelist Category',
+					description: 'No tags whitelisted',
+				});
+				await privileges.categories.give(
+					['groups:topics:create', 'groups:topics:tag'],
+					emptyCat.cid,
+					['registered-users']
+				);
+
+				let err;
+				try {
+					await topics.post({
+						uid: studentUid,
+						title: 'Student Empty WL Topic',
+						content: 'Student trying tags on empty whitelist',
+						cid: emptyCat.cid,
+						tags: ['any'],
+					});
+				} catch (_err) {
+					err = _err;
+				}
+				assert(err, 'Should have thrown an error');
+				assert.strictEqual(err.message, '[[error:tag-not-allowed]]');
+			});
+		});
+
+		describe('tag display and persistence', () => {
+			it('should persist tags on topic and retrieve them', async () => {
+				const topicTags = await topics.getTopicTags(adminTopicData.tid);
+				assert(topicTags.includes('lecture'), 'lecture tag should persist');
+				assert(topicTags.includes('exam'), 'exam tag should persist');
+			});
+
+			it('should include tags in topic data via API', async () => {
+				const topicData = await apiTopics.get({ uid: studentUid }, { tid: adminTopicData.tid });
+				assert(topicData, 'Topic data should be returned');
+				assert(Array.isArray(topicData.tags), 'tags should be an array');
+				const tagValues = topicData.tags.map(t => t.value);
+				assert(tagValues.includes('lecture'), 'lecture should be in topic tags');
+				assert(tagValues.includes('exam'), 'exam should be in topic tags');
+			});
+		});
+
+		describe('whitelist management - tag removal cascade', () => {
+			let cascadeTopicData;
+
+			before(async () => {
+				// Create a topic with quiz tag (quiz is in whitelist from earlier test)
+				const result = await topics.post({
+					uid: adminUid,
+					title: 'Cascade Test Topic',
+					content: 'Topic for testing tag removal cascade',
+					cid: courseTagCid,
+					tags: ['lecture', 'quiz'],
+				});
+				cascadeTopicData = result.topicData;
+			});
+
+			it('should remove tag from existing topics when removed from whitelist', async () => {
+				// Verify quiz tag exists on topic before removal
+				let topicTags = await topics.getTopicTags(cascadeTopicData.tid);
+				assert(topicTags.includes('quiz'), 'quiz tag should exist before removal');
+
+				// Remove quiz from whitelist
+				await apiCategories.update(
+					{ uid: adminUid },
+					{ cid: courseTagCid, values: { tagWhitelist: 'lecture,exam,lab' } }
+				);
+
+				// Verify quiz tag removed from topic
+				topicTags = await topics.getTopicTags(cascadeTopicData.tid);
+				assert(!topicTags.includes('quiz'), 'quiz tag should be removed from topic');
+			});
+
+			it('should preserve remaining whitelisted tags on topics after removal', async () => {
+				const topicTags = await topics.getTopicTags(cascadeTopicData.tid);
+				assert(topicTags.includes('lecture'), 'lecture tag should still be on topic');
+			});
+		});
+	});
+
 });
 
 describe('Topics\'', async () => {

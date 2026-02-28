@@ -209,6 +209,11 @@ module.exports = function (Topics) {
 				parentPost.content = foundPost.content;
 				return;
 			}
+			Object.defineProperty(parentPost, 'parsedForUid', {
+				value: callerUid,
+				enumerable: false,
+				configurable: true,
+			});
 			await posts.parsePost(parentPost);
 		}));
 
