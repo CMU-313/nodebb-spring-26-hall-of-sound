@@ -272,3 +272,130 @@ Under the `describe('tag whitelist')` test section.
 **Group D — Whitelist management - tag removal cascade (2 tests):**
 - Removing a tag from whitelist removes it from all existing topics in the category
 - Remaining whitelisted tags are preserved on topics after removal
+
+---
+
+# Feature 4: Answer/Comment Reply Type
+
+## Overview
+
+On **Question** topics, users can classify each reply as either an **Answer** or a **Comment**. The reply type is chosen when posting (quick reply or main composer) and is shown as a badge on each reply. Only **Answer** replies can be endorsed by instructors; comments cannot be endorsed. On **Note** topics, replies do not have this choice and are treated as comments.
+
+## How to Use
+
+### Replying with Answer or Comment (Question Topics)
+
+1. Open a **Question** topic (identified by the **Question** tag).
+2. When replying, you will see a **"Post as"** control with two options: **Answer** and **Comment**.
+3. **Quick reply** (at the bottom of the topic): Select **Answer** or **Comment** before typing and submitting. **Comment** is selected by default.
+4. **Main reply composer** (click **Reply** to open the full composer): Use the same **Post as** radio group — choose **Answer** or **Comment** (default **Comment**), then write and submit.
+
+Your choice is stored with the post and displayed as a green **"Answer"** or gray **"Comment"** badge next to the reply.
+
+### Default Behavior
+
+- If you do not change the selector, your reply is saved as a **Comment**.
+- On **Note** topics, the Answer/Comment selector is not shown; all replies are treated as comments.
+
+### Identifying Reply Types
+
+- Each reply on a question topic shows a badge: **Answer** (green) or **Comment** (gray).
+- Endorsement is only available on **Answer** replies — instructors use the checkmark on answers to endorse them.
+
+## Testing
+
+### Test Location
+
+All automated tests for this feature are located in:
+
+```
+test/replytype.js
+```
+
+Under the `describe('Reply type')` block. Reply-type storage and API behavior are in `describe('question topic replies')`, `describe('regular (non-question) topic replies')`, and `describe('API / post summary')`. Filtering tests are in `describe('filter by replyType (answers/comments)')` (see Feature 5).
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Question topic replies** | Storing `answer`/`comment`, default to comment, case normalization, rejection of invalid replyType | Covers users selecting Answer or Comment when replying and validation |
+| **Regular topic replies** | replyType not stored when replying to non-question topics | Ensures reply type only applies on question topics |
+| **API / post summary** | replyType included in post summary data | Ensures UI can display Answer/Comment badges from API |
+
+### Test Descriptions
+
+**Group A — Question topic replies (5 tests):**
+- Stores replyType `"answer"` when replying with replyType answer
+- Stores replyType `"comment"` when replying with replyType comment
+- Defaults to `"comment"` when replyType is omitted on a question topic
+- Accepts replyType in different case and normalizes to lowercase (e.g. `"ANSWER"` → `"answer"`)
+- Rejects invalid replyType on question topic with `[[error:invalid-reply-type]]`
+
+**Group B — Regular (non-question) topic replies (1 test):**
+- Does not store replyType when replying to a regular topic even if replyType is sent (stored value is null)
+
+**Group C — API / post summary (1 test):**
+- replyType is included in post data when present (e.g. in getPostSummaryByPids result)
+
+---
+
+# Feature 5: Filtering by Answers/Comments/All Replies
+
+## Overview
+
+On **Question** topic pages, a filter dropdown above the post list lets you view **All** replies, only **Answers**, or only **Comments**. The main post (first post) is always shown; the filter only affects which replies are displayed. This makes it easier to focus on direct answers or on discussion comments.
+
+## How to Use
+
+### Using the Reply Filter
+
+1. Open a **Question** topic that has both answer and comment replies.
+2. Above the list of posts, find the **reply filter** dropdown (e.g. labeled **"Filter by reply type"**).
+3. Choose one of:
+   - **All** — show the main post and all replies (default).
+   - **Answers** — show the main post and only replies marked as **Answer**.
+   - **Comments** — show the main post and only replies marked as **Comment**.
+4. The topic view updates immediately to show only the selected type of replies; the main post always remains visible.
+
+### Where the Filter Appears
+
+- The filter is only present on **Question** topic pages. It is not shown on **Note** topics or on categories.
+
+## Testing
+
+### Test Location
+
+Tests for this feature are located in:
+
+```
+test/replytype.js
+```
+
+Under the `describe('filter by replyType (answers/comments)')` section within `describe('Reply type')`.
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Filter "all"** | All posts (main + all replies) returned when filter is "all" | Covers default view |
+| **Filter "answer"** | Only main post and answer-type replies when filter is "answer" | Covers Answers filter behavior |
+| **Filter "comment"** | Only main post and comment-type replies when filter is "comment" | Covers Comments filter behavior |
+| **Main post always included** | First post included for every filter value; main post has no replyType | Ensures topic context is always visible |
+| **Mutual exclusion** | Answer pids do not appear in comment filter; comment pids do not appear in answer filter | Ensures filters correctly separate answers and comments |
+
+### Test Descriptions
+
+**Group A — Filter "all" (1 test):**
+- Returns all posts (main post + 4 replies) when filter is `"all"`; count matches full topic posts
+
+**Group B — Filter "answer" (1 test):**
+- Returns only main post and answers when filter is `"answer"` (e.g. main + 2 answers); every reply has replyType `"answer"`
+
+**Group C — Filter "comment" (1 test):**
+- Returns only main post and comments when filter is `"comment"` (e.g. main + 2 comments); every reply has replyType `"comment"`
+
+**Group D — Main post always included (1 test):**
+- For each filter value (`"all"`, `"answer"`, `"comment"`), filtered list has at least one post; first post is always the main post (same pid) and has no replyType
+
+**Group E — Mutual exclusion (1 test):**
+- Answer pids do not appear in the comment-filtered list; comment pids do not appear in the answer-filtered list
