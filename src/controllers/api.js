@@ -11,6 +11,7 @@ const translator = require('../translator');
 const languages = require('../languages');
 const { generateToken } = require('../middleware/csrf');
 const utils = require('../utils');
+const search = require('../search');
 
 const apiController = module.exports;
 
@@ -153,6 +154,112 @@ apiController.getConfig = async function (req, res) {
 apiController.getModerators = async function (req, res) {
 	const moderators = await categories.getModerators(req.params.cid);
 	res.json({ moderators: moderators });
+};
+
+/**
+ * Normalize text for suggestion scoring: lowercase, strip punctuation, split on whitespace.
+ * @param {string} str - Raw input
+ * @returns {string[]} Non-empty tokens
+ */
+function topicSuggestionNormalize(str) {
+	if (str == null || typeof str !== 'string') {
+		return [];
+	}
+	const s = str.toLowerCase().replace(/[\p{P}\p{S}]/gu, ' ').trim();
+	return s.split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Score a topic title against the query for deterministic ranking.
+ * Ranking tiers: 1) exact substring (query as contiguous substring in normalized title),
+ * 2) token overlap (count of query tokens that appear in title), 3) fallback (0).
+ * @param {string} query - User query
+ * @param {string} title - Topic title
+ * @returns {{ exact: boolean, overlap: number }}
+ */
+function topicSuggestionScore(query, title) {
+	const qTokens = topicSuggestionNormalize(query);
+	const tTokens = topicSuggestionNormalize(title);
+	if (qTokens.length === 0) {
+		return { exact: false, overlap: 0 };
+	}
+	const qStr = qTokens.join(' ');
+	const tStr = tTokens.join(' ');
+	const exact = tStr.length >= qStr.length && tStr.includes(qStr);
+	const tSet = new Set(tTokens);
+	const overlap = qTokens.filter(t => tSet.has(t)).length;
+	return { exact, overlap };
+}
+
+apiController.topicSuggestions = async function (req, res) {
+	const term = String(req.query.query || '').trim();
+	if (!term || term.length < 3) {
+		return res.json({ topics: [] });
+	}
+
+	if (!plugins.hooks.hasListeners('filter:search.query')) {
+		return res.json({ topics: [] });
+	}
+
+	const data = {
+		query: term,
+		searchIn: 'titles',
+		matchWords: 'all',
+		uid: req.uid,
+		itemsPerPage: 8,
+		page: 1,
+		sortBy: 'relevance',
+		sortDirection: '',
+	};
+
+	let result;
+	try {
+		result = await search.search(data);
+	} catch (err) {
+		return res.json({ topics: [] });
+	}
+
+	const topicsWithScore = [];
+	const seenTids = new Set();
+	if (result && Array.isArray(result.posts)) {
+		result.posts.forEach((post) => {
+			const topic = post && post.topic;
+			if (!topic || !topic.tid || seenTids.has(String(topic.tid))) {
+				return;
+			}
+			seenTids.add(String(topic.tid));
+			const score = topicSuggestionScore(term, topic.title || '');
+			topicsWithScore.push({
+				tid: topic.tid,
+				title: topic.title,
+				slug: topic.slug,
+				timestamp: topic.timestamp,
+				user: post.user,
+				teaserPid: topic.teaserPid,
+				_score: score,
+			});
+		});
+	}
+
+	// Deterministic order: exact substring first, then by token overlap (desc), then by timestamp (desc)
+	topicsWithScore.sort((a, b) => {
+		const sa = a._score;
+		const sb = b._score;
+		if (sa.exact !== sb.exact) {
+			return sa.exact ? -1 : 1;
+		}
+		if (sa.overlap !== sb.overlap) {
+			return sb.overlap - sa.overlap;
+		}
+		return (b.timestamp || 0) - (a.timestamp || 0);
+	});
+
+	const topics = topicsWithScore.slice(0, 8).map((item) => {
+		const copy = { ...item };
+		delete copy._score;
+		return copy;
+	});
+	res.json({ topics: topics });
 };
 
 require('../promisify')(apiController, ['getConfig', 'getObject', 'getModerators']);

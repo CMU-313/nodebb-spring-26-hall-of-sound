@@ -105,14 +105,18 @@ if (document.readyState === 'loading') {
 			'taskbar',
 			'helpers',
 			'forum/pagination',
+			'forum/composerTopicSuggestions',
 			'messages',
 			'search',
 			'forum/header',
 			'hooks',
-		], function (taskbar, helpers, pagination, messages, search, header, hooks) {
+		], function (taskbar, helpers, pagination, composerTopicSuggestions, messages, search, header, hooks) {
 			header.prepareDOM();
 			taskbar.init();
 			helpers.register();
+			if (composerTopicSuggestions && composerTopicSuggestions.init) {
+				composerTopicSuggestions.init();
+			}
 			pagination.init();
 			search.init();
 			overrides.overrideTimeago();
