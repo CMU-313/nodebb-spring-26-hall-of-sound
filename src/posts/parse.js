@@ -54,19 +54,29 @@ module.exports = function (Posts) {
 
 		if (postData.pid && cachedContent !== undefined) {
 			postData.content = cachedContent;
+			// Apply viewer-dependent reference links after cache hit
+			try {
+				postData.content = await Posts.replacePostReferenceLinks(postData.content, postData.parsedForUid);
+			} catch (err) {
+				winston.verbose('[posts/references] replacePostReferenceLinks failed, preserving plain text: ' + err.message);
+			}
 			return postData;
 		}
 
 		({ postData } = await plugins.hooks.fire('filter:parse.post', { postData, type }));
 		postData.content = translator.escape(postData.content);
+		if (postData.pid) {
+			cache.set(cacheKey, postData.content);
+		}
+
+		// Post reference links are viewer-dependent (permission-gated), so they
+		// must run AFTER caching the base content to avoid leaking links across
+		// users with different privilege levels.
 		try {
 			postData.content = await Posts.replacePostReferenceLinks(postData.content, postData.parsedForUid);
 		} catch (err) {
 			// Fallback: leave content as escaped text so invalid/unauthorized refs never break rendering
 			winston.verbose('[posts/references] replacePostReferenceLinks failed, preserving plain text: ' + err.message);
-		}
-		if (postData.pid) {
-			cache.set(cacheKey, postData.content);
 		}
 
 		return postData;
