@@ -21,6 +21,19 @@
 
 ---
 
+# How to Run
+
+- **Run all automated tests:**
+  ```bash
+  npm test
+  ```
+- **Run the linter:**
+  ```bash
+  npm run lint
+  ```
+
+---
+
 # Feature 1: Question/Note Topic Type
 
 ## Overview
@@ -98,7 +111,194 @@ Under the `describe('Topic Type - Question/Note')` test section (near the end of
 
 ---
 
-# Feature 2: Instructor-Endorsed Answers
+# Feature 2: Answer/Comment Reply Type
+
+## Overview
+
+On **Question** topics, users can classify each reply as either an **Answer** or a **Comment**. The reply type is chosen when posting (quick reply or main composer) and is shown as a badge on each reply. Only **Answer** replies can be endorsed by instructors; comments cannot be endorsed. On **Note** topics, replies do not have this choice and are treated as comments.
+
+## How to Use
+
+### Replying with Answer or Comment (Question Topics)
+
+1. Open a **Question** topic (identified by the **Question** tag).
+2. When replying, you will see a **"Post as"** control with two options: **Answer** and **Comment**.
+3. **Quick reply** (at the bottom of the topic): Select **Answer** or **Comment** before typing and submitting. **Comment** is selected by default.
+4. **Main reply composer** (click **Reply** to open the full composer): Use the same **Post as** radio group — choose **Answer** or **Comment** (default **Comment**), then write and submit.
+
+Your choice is stored with the post and displayed as a green **"Answer"** or gray **"Comment"** badge next to the reply.
+
+### Default Behavior
+
+- If you do not change the selector, your reply is saved as a **Comment**.
+- On **Note** topics, the Answer/Comment selector is not shown; all replies are treated as comments.
+
+### Identifying Reply Types
+
+- Each reply on a question topic shows a badge: **Answer** (green) or **Comment** (gray).
+- Endorsement is only available on **Answer** replies — instructors use the checkmark on answers to endorse them.
+
+## Testing
+
+### Test Location
+
+All automated tests for this feature are located in:
+
+```
+test/replytype.js
+```
+
+Under the `describe('Reply type')` block. Reply-type storage and API behavior are in `describe('question topic replies')`, `describe('regular (non-question) topic replies')`, and `describe('API / post summary')`. Filtering tests are in `describe('filter by replyType (answers/comments)')` (see Feature 3).
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Question topic replies** | Storing `answer`/`comment`, default to comment, case normalization, rejection of invalid replyType | Covers users selecting Answer or Comment when replying and validation |
+| **Regular topic replies** | replyType not stored when replying to non-question topics | Ensures reply type only applies on question topics |
+| **API / post summary** | replyType included in post summary data | Ensures UI can display Answer/Comment badges from API |
+
+### Test Descriptions
+
+**Group A — Question topic replies (5 tests):**
+- Stores replyType `"answer"` when replying with replyType answer
+- Stores replyType `"comment"` when replying with replyType comment
+- Defaults to `"comment"` when replyType is omitted on a question topic
+- Accepts replyType in different case and normalizes to lowercase (e.g. `"ANSWER"` → `"answer"`)
+- Rejects invalid replyType on question topic with `[[error:invalid-reply-type]]`
+
+**Group B — Regular (non-question) topic replies (1 test):**
+- Does not store replyType when replying to a regular topic even if replyType is sent (stored value is null)
+
+**Group C — API / post summary (1 test):**
+- replyType is included in post data when present (e.g. in getPostSummaryByPids result)
+
+---
+
+# Feature 3: Filtering by Answers/Comments/All Replies
+
+## Overview
+
+On **Question** topic pages, a filter dropdown above the post list lets you view **All** replies, only **Answers**, or only **Comments**. The main post (first post) is always shown; the filter only affects which replies are displayed. This makes it easier to focus on direct answers or on discussion comments.
+
+## How to Use
+
+### Using the Reply Filter
+
+1. Open a **Question** topic that has both answer and comment replies.
+2. Above the list of posts, find the **reply filter** dropdown (e.g. labeled **"Filter by reply type"**).
+3. Choose one of:
+   - **All** — show the main post and all replies (default).
+   - **Answers** — show the main post and only replies marked as **Answer**.
+   - **Comments** — show the main post and only replies marked as **Comment**.
+4. The topic view updates immediately to show only the selected type of replies; the main post always remains visible.
+
+### Where the Filter Appears
+
+- The filter is only present on **Question** topic pages. It is not shown on **Note** topics or on categories.
+
+## Testing
+
+### Test Location
+
+Tests for this feature are located in:
+
+```
+test/replytype.js
+```
+
+Under the `describe('filter by replyType (answers/comments)')` section within `describe('Reply type')`.
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Filter "all"** | All posts (main + all replies) returned when filter is "all" | Covers default view |
+| **Filter "answer"** | Only main post and answer-type replies when filter is "answer" | Covers Answers filter behavior |
+| **Filter "comment"** | Only main post and comment-type replies when filter is "comment" | Covers Comments filter behavior |
+| **Main post always included** | First post included for every filter value; main post has no replyType | Ensures topic context is always visible |
+| **Mutual exclusion** | Answer pids do not appear in comment filter; comment pids do not appear in answer filter | Ensures filters correctly separate answers and comments |
+
+### Test Descriptions
+
+**Group A — Filter "all" (1 test):**
+- Returns all posts (main post + 4 replies) when filter is `"all"`; count matches full topic posts
+
+**Group B — Filter "answer" (1 test):**
+- Returns only main post and answers when filter is `"answer"` (e.g. main + 2 answers); every reply has replyType `"answer"`
+
+**Group C — Filter "comment" (1 test):**
+- Returns only main post and comments when filter is `"comment"` (e.g. main + 2 comments); every reply has replyType `"comment"`
+
+**Group D — Main post always included (1 test):**
+- For each filter value (`"all"`, `"answer"`, `"comment"`), filtered list has at least one post; first post is always the main post (same pid) and has no replyType
+
+**Group E — Mutual exclusion (1 test):**
+- Answer pids do not appear in the comment-filtered list; comment pids do not appear in the answer-filtered list
+
+---
+
+# Feature 4: Answered/Unanswered Filter for Question-Tagged Topics
+
+## Overview
+
+When viewing a list of topics filtered by the **Question** tag (on a category page or world topic list), you can further filter by answer status: **Answered** or **Unanswered**. **Answered** means the topic has at least one non-deleted reply with `replyType="answer"`; otherwise the topic is **Unanswered**. The filter uses the query parameter `answerStatus=answered` or `answerStatus=unanswered` and preserves the selected tag and pagination.
+
+## How to Use
+
+### Where the Filter Appears
+
+1. Navigate to a category page (or the world topic list).
+2. Use the **tag filter** to select the **Question** tag so only question-type topics are listed.
+3. An **answer status** dropdown appears (e.g. "All" / "Answered" / "Unanswered").
+4. Select **Answered** to see only topics that have at least one non-deleted reply with type **Answer** (`replyType=answer`).
+5. Select **Unanswered** to see only topics with no such answer replies.
+6. The URL includes `answerStatus=answered` or `answerStatus=unanswered`; the selected tag and pagination parameters are preserved.
+
+### Step-by-Step User Test
+
+1. Create a **Question** topic. Confirm it appears when the **Question** tag is selected and **Unanswered** is chosen.
+2. Open the topic and add a reply with reply type **Answer**. Return to the category, filter by **Question** + **Answered**. The topic should now appear under **Answered**.
+3. Delete the answer reply (or change its type). The topic should move back to **Unanswered**. Restore an answer reply; the topic should again show under **Answered**.
+4. Confirm the URL uses `answerStatus=answered` or `answerStatus=unanswered` as appropriate and that tag and pagination are preserved when switching answer status.
+
+## Testing
+
+### Test Location
+
+Tests for this feature are located in:
+
+```
+test/topic-type-answered-filter.js
+```
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Answered/unanswered definition** | Topic counted as Answered when it has ≥1 non-deleted reply with replyType=answer; else Unanswered | Verifies the core definition used by the filter |
+| **Filter and URL params** | Dropdown selection, `answerStatus=answered` / `answerStatus=unanswered` in URL, tag and pagination preserved | Covers UI and URL behavior for graders |
+| **Add/remove answer and status update** | Adding an answer moves topic to Answered; deleting or changing reply type moves it to Unanswered; restore restores Answered | Covers lifecycle and delete/restore edge cases |
+
+### Test Descriptions
+
+**Group A — Answered/unanswered definition (3 tests):**
+- Verifies topic with no answer replies is Unanswered
+- Verifies topic with at least one non-deleted answer reply is Answered
+- Verifies deleted answer replies do not count toward Answered
+
+**Group B — Filter and URL params (2 tests):**
+- Verifies answer status dropdown appears when Question tag is selected
+- Verifies selecting Answered/Unanswered sets `answerStatus` query param and preserves tag and pagination
+
+**Group C — Add/remove answer and status update (3 tests):**
+- Adding an answer reply to an Unanswered question moves it to Answered
+- Deleting the answer (or changing reply type) moves topic back to Unanswered
+- Restoring an answer moves topic back to Answered
+
+---
+
+# Feature 5: Instructor-Endorsed Answers
 
 ## Overview
 
@@ -179,7 +379,7 @@ Under the `describe('Instructor-Endorsed Answers')` test section (near the end o
 
 ---
 
-# Feature 3: Course Tags (Category Tag Whitelist)
+# Feature 6: Course Tags (Category Tag Whitelist)
 
 ## Overview
 
@@ -275,91 +475,39 @@ Under the `describe('tag whitelist')` test section.
 
 ---
 
-# Feature 4: Answer/Comment Reply Type
+# Feature 7: Topic Bookmarks
 
 ## Overview
 
-On **Question** topics, users can classify each reply as either an **Answer** or a **Comment**. The reply type is chosen when posting (quick reply or main composer) and is shown as a badge on each reply. Only **Answer** replies can be endorsed by instructors; comments cannot be endorsed. On **Note** topics, replies do not have this choice and are treated as comments.
+Users can bookmark topics to find them later. Bookmarked topics are listed on the **My Bookmarks** page (`/bookmarks`), sorted newest-first, with pagination. The bookmark toggle is shown only to logged-in users; logged-out users receive 401/403 from the bookmarks API and should not see bookmark controls.
 
 ## How to Use
 
-### Replying with Answer or Comment (Question Topics)
+### Bookmark Button on Topic Page
 
-1. Open a **Question** topic (identified by the **Question** tag).
-2. When replying, you will see a **"Post as"** control with two options: **Answer** and **Comment**.
-3. **Quick reply** (at the bottom of the topic): Select **Answer** or **Comment** before typing and submitting. **Comment** is selected by default.
-4. **Main reply composer** (click **Reply** to open the full composer): Use the same **Post as** radio group — choose **Answer** or **Comment** (default **Comment**), then write and submit.
+1. Open any topic while **logged in**.
+2. Use the **bookmark** button (toggle) on the topic page to add or remove the topic from your bookmarks.
 
-Your choice is stored with the post and displayed as a green **"Answer"** or gray **"Comment"** badge next to the reply.
+**Note:** When **logged out**, the bookmark button is **not shown**; requests to the bookmarks API return **401** or **403**.
+
+### My Bookmarks Link and Page
+
+1. Open the **user dropdown** (your username/avatar in the header).
+2. Click **My Bookmarks**.
+3. You are taken to **/bookmarks**.
 
 ### Default Behavior
 
-- If you do not change the selector, your reply is saved as a **Comment**.
-- On **Note** topics, the Answer/Comment selector is not shown; all replies are treated as comments.
+- **Empty state:** If you have no bookmarks, the page shows an empty state (e.g. a message that you have no bookmarks).
+- **List:** Bookmarked topics are listed **newest-first** (most recently bookmarked first).
+- **Pagination:** The list is paginated when there are many bookmarks; use pagination controls to move through pages.
 
-### Identifying Reply Types
+### API Endpoints
 
-- Each reply on a question topic shows a badge: **Answer** (green) or **Comment** (gray).
-- Endorsement is only available on **Answer** replies — instructors use the checkmark on answers to endorse them.
-
-## Testing
-
-### Test Location
-
-All automated tests for this feature are located in:
-
-```
-test/replytype.js
-```
-
-Under the `describe('Reply type')` block. Reply-type storage and API behavior are in `describe('question topic replies')`, `describe('regular (non-question) topic replies')`, and `describe('API / post summary')`. Filtering tests are in `describe('filter by replyType (answers/comments)')` (see Feature 5).
-
-### Test Coverage Summary
-
-| Test Group | What It Covers | Why It's Sufficient |
-|---|---|---|
-| **Question topic replies** | Storing `answer`/`comment`, default to comment, case normalization, rejection of invalid replyType | Covers users selecting Answer or Comment when replying and validation |
-| **Regular topic replies** | replyType not stored when replying to non-question topics | Ensures reply type only applies on question topics |
-| **API / post summary** | replyType included in post summary data | Ensures UI can display Answer/Comment badges from API |
-
-### Test Descriptions
-
-**Group A — Question topic replies (5 tests):**
-- Stores replyType `"answer"` when replying with replyType answer
-- Stores replyType `"comment"` when replying with replyType comment
-- Defaults to `"comment"` when replyType is omitted on a question topic
-- Accepts replyType in different case and normalizes to lowercase (e.g. `"ANSWER"` → `"answer"`)
-- Rejects invalid replyType on question topic with `[[error:invalid-reply-type]]`
-
-**Group B — Regular (non-question) topic replies (1 test):**
-- Does not store replyType when replying to a regular topic even if replyType is sent (stored value is null)
-
-**Group C — API / post summary (1 test):**
-- replyType is included in post data when present (e.g. in getPostSummaryByPids result)
-
----
-
-# Feature 5: Filtering by Answers/Comments/All Replies
-
-## Overview
-
-On **Question** topic pages, a filter dropdown above the post list lets you view **All** replies, only **Answers**, or only **Comments**. The main post (first post) is always shown; the filter only affects which replies are displayed. This makes it easier to focus on direct answers or on discussion comments.
-
-## How to Use
-
-### Using the Reply Filter
-
-1. Open a **Question** topic that has both answer and comment replies.
-2. Above the list of posts, find the **reply filter** dropdown (e.g. labeled **"Filter by reply type"**).
-3. Choose one of:
-   - **All** — show the main post and all replies (default).
-   - **Answers** — show the main post and only replies marked as **Answer**.
-   - **Comments** — show the main post and only replies marked as **Comment**.
-4. The topic view updates immediately to show only the selected type of replies; the main post always remains visible.
-
-### Where the Filter Appears
-
-- The filter is only present on **Question** topic pages. It is not shown on **Note** topics or on categories.
+- **POST** `/api/bookmarks/:tid` — Add topic to bookmarks. Returns **204** on success.
+- **DELETE** `/api/bookmarks/:tid` — Remove topic from bookmarks. Returns **204** on success.
+- **GET** `/api/bookmarks/:tid` — Check bookmark state. Returns `{ bookmarked: true }` or `{ bookmarked: false }`.
+- **GET** `/api/bookmarks` — List bookmarked topics (paginated, newest-first). Requires login; returns 401/403 when not authenticated.
 
 ## Testing
 
@@ -368,34 +516,174 @@ On **Question** topic pages, a filter dropdown above the post list lets you view
 Tests for this feature are located in:
 
 ```
-test/replytype.js
+test/bookmarks.js
 ```
-
-Under the `describe('filter by replyType (answers/comments)')` section within `describe('Reply type')`.
 
 ### Test Coverage Summary
 
 | Test Group | What It Covers | Why It's Sufficient |
 |---|---|---|
-| **Filter "all"** | All posts (main + all replies) returned when filter is "all" | Covers default view |
-| **Filter "answer"** | Only main post and answer-type replies when filter is "answer" | Covers Answers filter behavior |
-| **Filter "comment"** | Only main post and comment-type replies when filter is "comment" | Covers Comments filter behavior |
-| **Main post always included** | First post included for every filter value; main post has no replyType | Ensures topic context is always visible |
-| **Mutual exclusion** | Answer pids do not appear in comment filter; comment pids do not appear in answer filter | Ensures filters correctly separate answers and comments |
+| **Bookmark API (add/remove/check/list)** | POST/DELETE/GET :tid and GET list; 204 and `bookmarked` response; paginated newest-first list | Verifies all endpoints and response shapes |
+| **Auth requirement** | 401/403 when not logged in; bookmark controls not shown to guests | Covers acceptance criteria for logged-out behavior |
 
 ### Test Descriptions
 
-**Group A — Filter "all" (1 test):**
-- Returns all posts (main post + 4 replies) when filter is `"all"`; count matches full topic posts
+**Group A — Bookmark API (add/remove/check/list) (4 tests):**
+- POST /api/bookmarks/:tid adds topic to bookmarks and returns 204
+- DELETE /api/bookmarks/:tid removes topic from bookmarks and returns 204
+- GET /api/bookmarks/:tid returns { bookmarked: true } or { bookmarked: false } as appropriate
+- GET /api/bookmarks returns paginated list of bookmarked topics, newest-first
 
-**Group B — Filter "answer" (1 test):**
-- Returns only main post and answers when filter is `"answer"` (e.g. main + 2 answers); every reply has replyType `"answer"`
+**Group B — Auth requirement (2 tests):**
+- Unauthenticated requests to bookmark endpoints receive 401 or 403
+- Bookmark button/controls are not shown when logged out
 
-**Group C — Filter "comment" (1 test):**
-- Returns only main post and comments when filter is `"comment"` (e.g. main + 2 comments); every reply has replyType `"comment"`
+---
 
-**Group D — Main post always included (1 test):**
-- For each filter value (`"all"`, `"answer"`, `"comment"`), filtered list has at least one post; first post is always the main post (same pid) and has no replyType
+# Feature 8: Post Number References (@number)
 
-**Group E — Mutual exclusion (1 test):**
-- Answer pids do not appear in the comment-filtered list; comment pids do not appear in the answer-filtered list
+## Overview
+
+In replies and comments, you can reference another post by typing `@` followed by the post number (e.g. `@23`). If the post exists and the viewer can access it, the reference is rendered as a clickable link to that post; invalid, nonexistent, or unauthorized references remain plain text. Multiple and duplicate references (e.g. `@5` and `@10`, or `@23` twice) are supported and rendered correctly.
+
+## How to Use
+
+### Typing a Reference
+
+1. In the composer (reply or comment), type `@` followed by the post number (digits), e.g. `@23`.
+2. Submit the post. The content is parsed for patterns like `@<digits>`.
+
+### When References Become Links
+
+- **Valid and visible:** If the post exists and the **viewer** has permission to read it (e.g. same topic/category), the reference is rendered as a **clickable link** to that post (e.g. `/topic/...` with fragment or post id). The link text shows as `@<number>`.
+- **Invalid / nonexistent / unauthorized:** If the post does not exist or the viewer cannot access it, the reference remains **plain text** (e.g. `@23` or `@99999999`).
+
+### Multiple and Duplicate References
+
+- You can include **multiple** references in one post (e.g. `See @5 and @10`). Each valid reference is turned into a link.
+- **Duplicate** references (e.g. `@23` twice) are both rendered as links when the post is valid and visible.
+
+## Testing
+
+### Test Location
+
+Tests for this feature are located in:
+
+```
+test/references.js
+```
+
+Under the `describe('Post reference links (@post-number)')` test section.
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Parsing (parsePostReferences)** | Extracting @post-number refs from content; null/empty; single/multiple/duplicate; no match for @username; start/end for replacement | Verifies parsing and substring safety |
+| **Resolution (resolvePostReferencePaths)** | Resolving pids to topic paths; empty pids; nonexistent post; multiple posts; deduplication | Verifies path resolution for links |
+| **Permissions (getVisiblePostReferencePids)** | Only pids the user can read are returned; empty pids; nonexistent posts excluded | Ensures unauthorized refs stay plain text |
+| **Rendering (replacePostReferenceLinks)** | Valid ref → clickable link; invalid/nonexistent → plain text; null/undefined uid → unchanged; multiple/duplicate refs; mix of valid and invalid | Covers display and fallback behavior |
+| **Fallback behavior** | Invalid ref preserved as plain text; no refs match; null/non-string content; refs in getPostSummaryByPids and getPostsByPids output | Covers edge cases and integration paths |
+
+### Test Descriptions
+
+**Group A — Parsing (parsePostReferences) (9 tests):**
+- Returns empty array for null, empty, or undefined content
+- Detects a single @post-number reference (e.g. @23) with correct pid, start, end
+- Detects @1 and other short refs
+- Does not match @username (no digits)
+- Matches @23 but not @user in mixed content
+- Detects multiple references in one post (e.g. @5, @10, @100)
+- Detects duplicate references (same pid twice)
+- Does not overlap @2 and @23 as single match; returns both
+- Returns correct start/end for replacement (substring safety)
+
+**Group B — Resolution (resolvePostReferencePaths) (5 tests):**
+- Returns empty object for empty pids
+- Returns path for existing post (string starting with /topic/)
+- Does not return path for nonexistent post
+- Returns paths for multiple existing posts
+- Deduplicates pids and returns one path per pid
+
+**Group C — Permissions (getVisiblePostReferencePids) (3 tests):**
+- Returns empty array for empty pids
+- Returns pids user can read (same category)
+- Does not return pids for nonexistent posts
+
+**Group D — Rendering (replacePostReferenceLinks) (7 tests):**
+- Returns content unchanged when uid is null or undefined
+- Renders valid reference as clickable link (href, >@pid</a>, /topic/)
+- Renders multiple valid references as links
+- Renders duplicate references as links (both instances)
+- Leaves invalid (nonexistent) reference as plain text
+- Mix of valid and invalid refs: only valid become links
+
+**Group E — Fallback behavior (5 tests):**
+- Preserves invalid reference as plain @number
+- Preserves content when no refs match (e.g. @user only)
+- Returns content unchanged for null or non-string content
+- Renders @post refs in getPostSummaryByPids output when content has refs
+- Linkifies @post refs when posts are loaded via getPostsByPids (topic/socket path)
+
+---
+
+# Feature 9: Topic Recommendations / Topic Suggestions
+
+## Overview
+
+When composing a new topic (or in contexts where a topic is chosen), typing in the title or a search query shows **topic suggestions** based on existing topics. The backend endpoint is **GET** `/api/topic-suggestions?q=...`. Ranking prefers exact substring match, then token overlap, then fallback; matching is case-insensitive and deterministic; results respect permissions; empty or special-character query is handled safely.
+
+## How to Use
+
+### In the Composer
+
+1. Start creating a new topic (or use a field that supports topic suggestions).
+2. Type in the **title** or **query** in the relevant input.
+3. As you type, **topic suggestions** appear (e.g. in a dropdown or list).
+4. Select a suggestion to navigate to that topic or reuse it; otherwise continue typing.
+
+### API Endpoint
+
+- **GET** `/api/topic-suggestions?q=...` — Returns a list of suggested topics matching the query. Use the `q` query parameter for the search string.
+
+### Expected Behavior
+
+- **Ranking:** Exact substring matches first, then token/word overlap, then fallback.
+- **Case:** Matching is **case-insensitive**.
+- **Determinism:** Same query returns the same ordering (deterministic).
+- **Permissions:** Only topics the current user is allowed to read are included.
+- **Safe input:** Empty `q`, special characters, or unusual input do not cause errors; the API returns a safe response (e.g. empty list or filtered results).
+
+## Testing
+
+### Test Location
+
+Tests for this feature are located in:
+
+```
+test/topic-suggestions.js
+```
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **API response and permissions** | GET /api/topic-suggestions?q= returns allowed topics only; respects read permissions | Verifies endpoint and permission filtering |
+| **Ranking and ordering** | Exact substring > token overlap > fallback; case-insensitive; deterministic ordering | Covers acceptance criteria for ranking |
+| **Safe input** | Empty query, special characters, or unusual input do not cause errors; safe response | Covers edge cases for graders |
+
+### Test Descriptions
+
+**Group A — API response and permissions (2 tests):**
+- GET /api/topic-suggestions?q=... returns list of topics the user can read
+- Results exclude topics the user is not allowed to read
+
+**Group B — Ranking and ordering (4 tests):**
+- Exact substring matches rank higher than token overlap
+- Token overlap ranks higher than fallback
+- Matching is case-insensitive
+- Same query produces deterministic (stable) ordering
+
+**Group C — Safe input (2 tests):**
+- Empty `q` returns safe response (e.g. empty list or no error)
+- Special characters or unusual input do not cause errors
