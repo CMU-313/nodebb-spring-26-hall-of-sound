@@ -143,10 +143,16 @@ categoriesAPI.getChildren = async (caller, { cid, start }) => {
 
 categoriesAPI.getTopics = async (caller, data) => {
 	data.query = data.query || {};
+	// Preserve query params (e.g. tag, answerStatus) that may be passed at top level from req.query
+	const query = {
+		...data.query,
+		tag: data.query.tag || data.tag,
+		answerStatus: data.query.answerStatus || data.answerStatus,
+	};
 	const [userPrivileges, settings, targetUid] = await Promise.all([
 		privileges.categories.get(data.cid, caller.uid),
 		user.getSettings(caller.uid),
-		user.getUidByUserslug(data.query.author),
+		user.getUidByUserslug(query.author),
 	]);
 
 	if (!userPrivileges.read) {
@@ -173,8 +179,8 @@ categoriesAPI.getTopics = async (caller, data) => {
 		stop,
 		sort,
 		settings,
-		query: data.query,
-		tag: data.query.tag,
+		query,
+		tag: query.tag,
 		targetUid,
 	});
 	categories.modifyTopicsByPrivilege(result.topics, userPrivileges);

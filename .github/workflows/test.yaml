@@ -79,6 +79,9 @@ jobs:
         run: |
           node app --setup="${SETUP}" --ci="${CI}"
 
+      - name: Install local plugins
+        run: ./setup-plugins.sh
+
       - name: Run ESLint
         run: npm run lint
 

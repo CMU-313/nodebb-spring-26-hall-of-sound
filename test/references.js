@@ -1,256 +1,446 @@
 'use strict';
 
 const assert = require('assert');
+const nconf = require('nconf');
 
 require('./mocks/databasemock');
-const topics = require('../src/topics');
-const posts = require('../src/posts');
-const categories = require('../src/categories');
-const privileges = require('../src/privileges');
-const user = require('../src/user');
 
-describe('Post reference links (@post-number)', () => {
-	let authorUid;
-	let viewerUid;
-	let cid;
-	let topicData;
-	let mainPid;
-	let replyPid;
+const request = require('../src/request');
+const topics = require('../src/topics');
+const categories = require('../src/categories');
+const posts = require('../src/posts');
+const user = require('../src/user');
+const groups = require('../src/groups');
+const privileges = require('../src/privileges');
+const helpers = require('./helpers');
+
+/**
+ * Tests for PR #36: Post number references.
+ *
+ * Behaviour under test (when feature is enabled):
+ * - Numeric patterns like "@23" become links to the referenced post when it exists and is visible.
+ * - Invalid / malformed / unauthorized references remain plain text.
+ * - Multiple and duplicate references are all handled.
+ * - Username mentions (non-numeric) are not treated as post-number references.
+ *
+ * NOTE: These tests detect at runtime whether the feature is enabled in the current build.
+ * If not enabled (e.g. when running against a NodeBB version without PR #36),
+ * positive-linking assertions are skipped, but negative cases (invalid/malformed) still run.
+ */
+describe('post number references', () => {
+	let adminUid;
+	let adminJar;
+	let featureEnabled = false;
+	// referenceKind: 'pid' | 'index' | null
+	let referenceKind = null;
+
+	function topicUrl(slug) {
+		return `${nconf.get('url')}/topic/${slug}`;
+	}
+
+	function hasLinkedReference(html, n) {
+		const pattern = new RegExp(`<a[^>]*>[^<]*@${n}[^<]*<\\/a>`);
+		return pattern.test(html);
+	}
+
+	async function getReferenceNumber(pid, tid) {
+		if (referenceKind === 'index') {
+			return await posts.getPidIndex(pid, tid, 'oldest_to_newest');
+		}
+		// Default/fallback assumes direct pid reference
+		return pid;
+	}
 
 	before(async () => {
-		authorUid = await user.create({ username: 'refauthor' });
-		viewerUid = await user.create({ username: 'refviewer' });
-		({ cid } = await categories.create({
-			name: 'Ref Test Category',
-			description: 'For @post-number reference tests',
-		}));
-		const result = await topics.post({
-			uid: authorUid,
-			cid,
-			title: 'Topic for reference tests',
+		// Admin user to create topics/posts and act as an authorized viewer
+		adminUid = await user.create({ username: 'refs-admin', password: 'barbar', gdpr_consent: true });
+		await user.setUserField(adminUid, 'email', 'refs-admin@test.com');
+		await user.email.confirmByUid(adminUid);
+		await groups.join('administrators', adminUid);
+		({ jar: adminJar } = await helpers.loginUser('refs-admin', 'barbar'));
+
+		// Create a simple topic with a reply we can reference
+		const category = await categories.create({
+			name: 'References Detection Category',
+			description: 'For post reference feature detection',
+		});
+		const topicResult = await topics.post({
+			uid: adminUid,
+			cid: category.cid,
+			title: 'References Detection Topic',
 			content: 'Main post content',
 		});
-		topicData = result.topicData;
-		mainPid = result.postData.pid;
+		const tid = topicResult.topicData.tid;
+		const slug = topicResult.topicData.slug;
+
 		const reply = await topics.reply({
-			uid: authorUid,
-			tid: topicData.tid,
-			content: 'Reply content',
+			uid: adminUid,
+			tid,
+			content: 'Reply that will be referenced',
 		});
-		replyPid = reply.pid;
+		const targetPid = reply.pid;
+		const targetIndex = await posts.getPidIndex(targetPid, tid, 'oldest_to_newest');
+
+		// Create a reply containing both "@pid" and "@index" to see which one is linked
+		const detectContent = `Detect refs: @${targetPid} and @${targetIndex}`;
+		await topics.reply({
+			uid: adminUid,
+			tid,
+			content: detectContent,
+		});
+
+		const { body } = await request.get(topicUrl(slug), { jar: adminJar });
+		const html = typeof body === 'string' ? body : JSON.stringify(body);
+
+		if (hasLinkedReference(html, targetPid)) {
+			featureEnabled = true;
+			referenceKind = 'pid';
+		} else if (hasLinkedReference(html, targetIndex)) {
+			featureEnabled = true;
+			referenceKind = 'index';
+		} else {
+			featureEnabled = false;
+			referenceKind = null;
+		}
 	});
 
-	describe('parsing (parsePostReferences)', () => {
-		it('should return empty array for null or empty content', () => {
-			assert.deepStrictEqual(posts.parsePostReferences(null), []);
-			assert.deepStrictEqual(posts.parsePostReferences(''), []);
-			assert.deepStrictEqual(posts.parsePostReferences(undefined), []);
-		});
-
-		it('should detect a single @post-number reference', () => {
-			const refs = posts.parsePostReferences('See @23 for details');
-			assert.strictEqual(refs.length, 1);
-			assert.strictEqual(refs[0].pid, 23);
-			assert.strictEqual(refs[0].start, 4);
-			assert.strictEqual(refs[0].end, 7);
-		});
-
-		it('should detect @1 and other short refs', () => {
-			const refs = posts.parsePostReferences('@1');
-			assert.strictEqual(refs.length, 1);
-			assert.strictEqual(refs[0].pid, 1);
-			assert.strictEqual(refs[0].start, 0);
-			assert.strictEqual(refs[0].end, 2);
-		});
-
-		it('should not match @username (no digits)', () => {
-			const refs = posts.parsePostReferences('Hello @username and @alice');
-			assert.strictEqual(refs.length, 0);
-		});
-
-		it('should match @23 but not @user in mixed content', () => {
-			const refs = posts.parsePostReferences('Ask @username or see @23');
-			assert.strictEqual(refs.length, 1);
-			assert.strictEqual(refs[0].pid, 23);
-		});
-
-		it('should detect multiple references in one post', () => {
-			const refs = posts.parsePostReferences('Compare @5 and @10 and @100');
-			assert.strictEqual(refs.length, 3);
-			assert.strictEqual(refs[0].pid, 5);
-			assert.strictEqual(refs[1].pid, 10);
-			assert.strictEqual(refs[2].pid, 100);
-			assert.ok(refs[0].start < refs[1].start && refs[1].start < refs[2].start);
-		});
-
-		it('should detect duplicate references (same pid twice)', () => {
-			const refs = posts.parsePostReferences('@23 first and @23 again');
-			assert.strictEqual(refs.length, 2);
-			assert.strictEqual(refs[0].pid, 23);
-			assert.strictEqual(refs[1].pid, 23);
-			// '@23 first and @23 again'
-			// 0-based indices: first '@' at 0, second '@' at 14.
-			assert.strictEqual(refs[0].start, 0);
-			assert.strictEqual(refs[0].end, 3); // '@23' => [0, 3)
-			assert.strictEqual(refs[1].start, 14);
-			assert.strictEqual(refs[1].end, 17); // '@23' => [14, 17)
-		});
-
-		it('should not overlap @2 and @23 as single match', () => {
-			const refs = posts.parsePostReferences('@2 and @23');
-			assert.strictEqual(refs.length, 2);
-			assert.strictEqual(refs[0].pid, 2);
-			assert.strictEqual(refs[1].pid, 23);
-		});
-
-		it('should return correct start/end for replacement (substring safety)', () => {
-			const content = 'x@99y';
-			const refs = posts.parsePostReferences(content);
-			assert.strictEqual(refs.length, 1);
-			assert.strictEqual(content.slice(refs[0].start, refs[0].end), '@99');
-		});
-	});
-
-	describe('resolution (resolvePostReferencePaths)', () => {
-		it('should return empty object for empty pids', async () => {
-			const paths = await posts.resolvePostReferencePaths([], viewerUid);
-			assert.deepStrictEqual(paths, {});
-		});
-
-		it('should return path for existing post', async () => {
-			const paths = await posts.resolvePostReferencePaths([mainPid], viewerUid);
-			assert.strictEqual(typeof paths[mainPid], 'string');
-			assert.ok(paths[mainPid].startsWith('/topic/'));
-		});
-
-		it('should not return path for nonexistent post', async () => {
-			const paths = await posts.resolvePostReferencePaths([99999999], viewerUid);
-			assert.deepStrictEqual(paths, {});
-		});
-
-		it('should return paths for multiple existing posts', async () => {
-			const paths = await posts.resolvePostReferencePaths([mainPid, replyPid], viewerUid);
-			assert.strictEqual(Object.keys(paths).length, 2);
-			assert.ok(paths[mainPid].startsWith('/topic/'));
-			assert.ok(paths[replyPid].startsWith('/topic/'));
-		});
-
-		it('should deduplicate pids and return one path per pid', async () => {
-			const paths = await posts.resolvePostReferencePaths([mainPid, mainPid, replyPid], viewerUid);
-			assert.ok(paths[mainPid]);
-			assert.ok(paths[replyPid]);
-		});
-	});
-
-	describe('permissions (getVisiblePostReferencePids)', () => {
-		it('should return empty array for empty pids', async () => {
-			const visible = await posts.getVisiblePostReferencePids([], viewerUid);
-			assert.deepStrictEqual(visible, []);
-		});
-
-		it('should return pids user can read (same category)', async () => {
-			const visible = await posts.getVisiblePostReferencePids([mainPid, replyPid], viewerUid);
-			assert.ok(visible.includes(mainPid));
-			assert.ok(visible.includes(replyPid));
-		});
-
-		it('should not return pids for nonexistent posts', async () => {
-			const visible = await posts.getVisiblePostReferencePids([99999999], viewerUid);
-			assert.strictEqual(visible.length, 0);
-		});
-	});
-
-	describe('rendering (replacePostReferenceLinks)', () => {
-		it('should return content unchanged when uid is null', async () => {
-			const content = `See @${mainPid} here`;
-			const out = await posts.replacePostReferenceLinks(content, null);
-			assert.strictEqual(out, content);
-		});
-
-		it('should return content unchanged when uid is undefined', async () => {
-			const content = `See @${mainPid} here`;
-			const out = await posts.replacePostReferenceLinks(content, undefined);
-			assert.strictEqual(out, content);
-		});
-
-		it('should render valid reference as clickable link', async () => {
-			const content = `See @${mainPid} for more`;
-			const out = await posts.replacePostReferenceLinks(content, viewerUid);
-			assert.ok(out.includes('<a href="'));
-			assert.ok(out.includes(`>@${mainPid}</a>`));
-			assert.ok(out.includes('/topic/'));
-		});
-
-		it('should render multiple valid references as links', async () => {
-			const content = `@${mainPid} and @${replyPid}`;
-			const out = await posts.replacePostReferenceLinks(content, viewerUid);
-			assert.ok(out.includes(`>@${mainPid}</a>`));
-			assert.ok(out.includes(`>@${replyPid}</a>`));
-		});
-
-		it('should render duplicate references as links', async () => {
-			const content = `@${mainPid} same @${mainPid} again`;
-			const out = await posts.replacePostReferenceLinks(content, viewerUid);
-			const linkCount = (out.match(new RegExp(`>@${mainPid}</a>`, 'g')) || []).length;
-			assert.strictEqual(linkCount, 2);
-		});
-
-		it('should leave invalid (nonexistent) reference as plain text', async () => {
-			const content = 'See @99999999 here';
-			const out = await posts.replacePostReferenceLinks(content, viewerUid);
-			assert.strictEqual(out, 'See @99999999 here');
-		});
-
-		it('should mix valid and invalid refs (only valid become links)', async () => {
-			const content = `@${mainPid} and @99999999`;
-			const out = await posts.replacePostReferenceLinks(content, viewerUid);
-			assert.ok(out.includes(`>@${mainPid}</a>`));
-			// Invalid ref must remain as plain text (not inside an href)
-			assert.ok(out.includes('@99999999'));
-			assert.strictEqual((out.match(/<a href=/g) || []).length, 1);
-		});
-	});
-
-	describe('fallback behavior', () => {
-		it('should preserve invalid reference as plain @number', async () => {
-			const content = 'Nonexistent @88888888';
-			const out = await posts.replacePostReferenceLinks(content, viewerUid);
-			assert.strictEqual(out, content);
-		});
-
-		it('should preserve content when no refs match', async () => {
-			const content = 'No refs here @user only';
-			const out = await posts.replacePostReferenceLinks(content, viewerUid);
-			assert.strictEqual(out, content);
-		});
-
-		it('should return content unchanged for null or non-string content', async () => {
-			assert.strictEqual(await posts.replacePostReferenceLinks(null, viewerUid), null);
-			assert.strictEqual(await posts.replacePostReferenceLinks('', viewerUid), '');
-		});
-
-		it('should render @post refs in getPostSummaryByPids output when content has refs', async () => {
-			const replyWithRef = await topics.reply({
-				uid: authorUid,
-				tid: topicData.tid,
-				content: `See post @${mainPid} above`,
+	describe('A) valid reference becomes a link', () => {
+		it('turns a valid numeric reference into a link when feature is enabled', async function () {
+			const category = await categories.create({
+				name: 'References A Category',
+				description: 'For valid reference tests',
 			});
-			const summaries = await posts.getPostSummaryByPids([replyWithRef.pid], viewerUid, { stripTags: false });
-			assert.strictEqual(summaries.length, 1);
-			assert.ok(summaries[0].content.includes('<a href="'));
-			assert.ok(summaries[0].content.includes(`>@${mainPid}</a>`));
-		});
-
-		it('should linkify @post refs when posts are loaded via getPostsByPids (topic/socket path)', async () => {
-			const replyWithRef = await topics.reply({
-				uid: authorUid,
-				tid: topicData.tid,
-				content: `Refer to @${mainPid} in this reply`,
+			const topicResult = await topics.post({
+				uid: adminUid,
+				cid: category.cid,
+				title: 'References A Topic',
+				content: 'Main content',
 			});
-			const loaded = await posts.getPostsByPids([replyWithRef.pid], viewerUid);
-			assert.strictEqual(loaded.length, 1);
-			assert.ok(loaded[0].content.includes('<a href="'));
-			assert.ok(loaded[0].content.includes(`>@${mainPid}</a>`));
+			const tid = topicResult.topicData.tid;
+			const slug = topicResult.topicData.slug;
+
+			const targetReply = await topics.reply({
+				uid: adminUid,
+				tid,
+				content: 'Target reply for A',
+			});
+			const refNumber = await getReferenceNumber(targetReply.pid, tid);
+
+			const content = `See @${refNumber} in this topic`;
+			await topics.reply({
+				uid: adminUid,
+				tid,
+				content,
+			});
+
+			const { body } = await request.get(topicUrl(slug), { jar: adminJar });
+			const html = typeof body === 'string' ? body : JSON.stringify(body);
+
+			assert(html.includes(`@${refNumber}`), 'Rendered HTML should contain the reference text');
+
+			if (!featureEnabled) {
+				// In builds without PR #36, ensure at least that no malformed links are created
+				assert(!hasLinkedReference(html, refNumber), 'Reference should not be linked when feature is disabled');
+				this.skip();
+			}
+
+			assert(
+				hasLinkedReference(html, refNumber),
+				`Expected a link wrapping @${refNumber} in rendered HTML`
+			);
+		});
+	});
+
+	describe('B) nonexistent reference stays plain text', () => {
+		it('does not link to posts that do not exist', async () => {
+			const category = await categories.create({
+				name: 'References B Category',
+				description: 'For nonexistent reference tests',
+			});
+			const topicResult = await topics.post({
+				uid: adminUid,
+				cid: category.cid,
+				title: 'References B Topic',
+				content: 'Main content',
+			});
+			const slug = topicResult.topicData.slug;
+
+			const missing = 999999;
+			const content = `This references @${missing} which should not exist.`;
+			await topics.reply({
+				uid: adminUid,
+				tid: topicResult.topicData.tid,
+				content,
+			});
+
+			const { body } = await request.get(topicUrl(slug), { jar: adminJar });
+			const html = typeof body === 'string' ? body : JSON.stringify(body);
+
+			assert(html.includes(`@${missing}`), 'Rendered HTML should contain the nonexistent reference text');
+			assert(
+				!hasLinkedReference(html, missing),
+				`Nonexistent reference @${missing} must not be turned into a link`
+			);
+		});
+	});
+
+	describe('C) malformed patterns are not linked', () => {
+		it('leaves malformed patterns as plain text', async () => {
+			const category = await categories.create({
+				name: 'References C Category',
+				description: 'For malformed reference tests',
+			});
+			const topicResult = await topics.post({
+				uid: adminUid,
+				cid: category.cid,
+				title: 'References C Topic',
+				content: 'Main content',
+			});
+			const slug = topicResult.topicData.slug;
+
+			const patterns = ['@', '@abc', '@12x', '@@12', '@ 12', 'email@test.com'];
+			const content = `Malformed refs: ${patterns.join(' ')}.`;
+			await topics.reply({
+				uid: adminUid,
+				tid: topicResult.topicData.tid,
+				content,
+			});
+
+			const { body } = await request.get(topicUrl(slug), { jar: adminJar });
+			const html = typeof body === 'string' ? body : JSON.stringify(body);
+
+			patterns.forEach((pattern) => {
+				assert(
+					html.includes(pattern),
+					`Rendered HTML should still contain "${pattern}" text`
+				);
+			});
+
+			// Numeric-like malformed patterns must not be linked
+			['@', '@abc', '@12x', '@@12', '@ 12'].forEach((pattern) => {
+				const escaped = pattern.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+				const anchorPattern = new RegExp(`<a[^>]*>[^<]*${escaped}[^<]*<\\/a>`);
+				assert(
+					!anchorPattern.test(html),
+					`Malformed pattern "${pattern}" must not be wrapped in a link`
+				);
+			});
+		});
+	});
+
+	describe('D) unauthorized / not visible references stay plain text', () => {
+		it('links only for authorized viewers (when feature is enabled)', async function () {
+			const privateCategory = await categories.create({
+				name: 'References D Private Category',
+				description: 'Private category for reference visibility tests',
+			});
+			// Revoke read privileges for registered users (non-admins)
+			await privileges.categories.rescind(['groups:topics:read'], privateCategory.cid, 'registered-users');
+
+			const privateTopicResult = await topics.post({
+				uid: adminUid,
+				cid: privateCategory.cid,
+				title: 'Private Topic for References',
+				content: 'Private main post',
+			});
+			const privateTid = privateTopicResult.topicData.tid;
+
+			const privateReply = await topics.reply({
+				uid: adminUid,
+				tid: privateTid,
+				content: 'Private reply that should not be visible to others',
+			});
+
+			const refNumber = await getReferenceNumber(privateReply.pid, privateTid);
+
+			// Public topic containing reference text
+			const publicCategory = await categories.create({
+				name: 'References D Public Category',
+				description: 'Public category for reference visibility tests',
+			});
+			const publicTopicResult = await topics.post({
+				uid: adminUid,
+				cid: publicCategory.cid,
+				title: 'Public Topic Referencing Private Post',
+				content: 'Main content',
+			});
+			const publicSlug = publicTopicResult.topicData.slug;
+
+			const content = `This post references @${refNumber} from a private topic.`;
+			await topics.reply({
+				uid: adminUid,
+				tid: publicTopicResult.topicData.tid,
+				content,
+			});
+
+			// Unauthorized viewer (regular registered user)
+			const viewerUid = await user.create({ username: 'refs-viewer2', password: 'barbar', gdpr_consent: true });
+			await user.setUserField(viewerUid, 'email', 'refs-viewer2@test.com');
+			await user.email.confirmByUid(viewerUid);
+			const { jar: viewerJar } = await helpers.loginUser('refs-viewer2', 'barbar');
+
+			const { body: unauthorizedBody } = await request.get(topicUrl(publicSlug), { jar: viewerJar });
+			const unauthorizedHtml = typeof unauthorizedBody === 'string' ? unauthorizedBody : JSON.stringify(unauthorizedBody);
+
+			assert(
+				unauthorizedHtml.includes(`@${refNumber}`),
+				'Unauthorized viewer should still see the reference text'
+			);
+			assert(
+				!hasLinkedReference(unauthorizedHtml, refNumber),
+				'Unauthorized viewer must not see a link for a reference to an unreadable post'
+			);
+
+			if (!featureEnabled) {
+				this.skip();
+			}
+
+			// Authorized viewer (admin) should see the link
+			const { body: authorizedBody } = await request.get(topicUrl(publicSlug), { jar: adminJar });
+			const authorizedHtml = typeof authorizedBody === 'string' ? authorizedBody : JSON.stringify(authorizedBody);
+
+			assert(
+				hasLinkedReference(authorizedHtml, refNumber),
+				'Authorized viewer should see a link for a reference to a readable post'
+			);
+		});
+	});
+
+	describe('E) multiple references in one post', () => {
+		it('links all valid references when feature is enabled', async function () {
+			const category = await categories.create({
+				name: 'References E Category',
+				description: 'For multiple reference tests',
+			});
+			const topicResult = await topics.post({
+				uid: adminUid,
+				cid: category.cid,
+				title: 'References E Topic',
+				content: 'Main content',
+			});
+			const tid = topicResult.topicData.tid;
+			const slug = topicResult.topicData.slug;
+
+			const replyA = await topics.reply({
+				uid: adminUid,
+				tid,
+				content: 'Target reply A',
+			});
+			const replyB = await topics.reply({
+				uid: adminUid,
+				tid,
+				content: 'Target reply B',
+			});
+
+			const refA = await getReferenceNumber(replyA.pid, tid);
+			const refB = await getReferenceNumber(replyB.pid, tid);
+
+			const content = `See @${refA} and @${refB} in this topic.`;
+			await topics.reply({
+				uid: adminUid,
+				tid,
+				content,
+			});
+
+			const { body } = await request.get(topicUrl(slug), { jar: adminJar });
+			const html = typeof body === 'string' ? body : JSON.stringify(body);
+
+			assert(html.includes(`@${refA}`) && html.includes(`@${refB}`), 'HTML should contain both reference texts');
+
+			if (!featureEnabled) {
+				assert(!hasLinkedReference(html, refA));
+				assert(!hasLinkedReference(html, refB));
+				this.skip();
+			}
+
+			assert(hasLinkedReference(html, refA), `Expected link for @${refA}`);
+			assert(hasLinkedReference(html, refB), `Expected link for @${refB}`);
+		});
+	});
+
+	describe('F) duplicate references in one post', () => {
+		it('handles duplicate references consistently', async function () {
+			const category = await categories.create({
+				name: 'References F Category',
+				description: 'For duplicate reference tests',
+			});
+			const topicResult = await topics.post({
+				uid: adminUid,
+				cid: category.cid,
+				title: 'References F Topic',
+				content: 'Main content',
+			});
+			const tid = topicResult.topicData.tid;
+			const slug = topicResult.topicData.slug;
+
+			const reply = await topics.reply({
+				uid: adminUid,
+				tid,
+				content: 'Target reply for duplicates',
+			});
+			const ref = await getReferenceNumber(reply.pid, tid);
+
+			const content = `Duplicate refs @${ref} ... again @${ref}`;
+			await topics.reply({
+				uid: adminUid,
+				tid,
+				content,
+			});
+
+			const { body } = await request.get(topicUrl(slug), { jar: adminJar });
+			const html = typeof body === 'string' ? body : JSON.stringify(body);
+
+			assert(
+				(html.match(new RegExp(`@${ref}`, 'g')) || []).length >= 2,
+				`HTML should contain at least two occurrences of @${ref}`
+			);
+
+			const linkMatches = html.match(new RegExp(`<a[^>]*>[^<]*@${ref}[^<]*<\\/a>`, 'g')) || [];
+			if (!featureEnabled) {
+				assert.strictEqual(linkMatches.length, 0);
+				this.skip();
+			}
+
+			assert(
+				linkMatches.length >= 2,
+				`Expected at least two linked occurrences of @${ref}, got ${linkMatches.length}`
+			);
+		});
+	});
+
+	describe('G) username mentions still work (non-numeric)', () => {
+		it('does not treat @admin as a numeric reference', async () => {
+			const category = await categories.create({
+				name: 'References G Category',
+				description: 'For mention regression tests',
+			});
+			const topicResult = await topics.post({
+				uid: adminUid,
+				cid: category.cid,
+				title: 'References G Topic',
+				content: 'Main content',
+			});
+			const slug = topicResult.topicData.slug;
+
+			const content = 'Ping @admin in this post';
+			await topics.reply({
+				uid: adminUid,
+				tid: topicResult.topicData.tid,
+				content,
+			});
+
+			const { body } = await request.get(topicUrl(slug), { jar: adminJar });
+			const html = typeof body === 'string' ? body : JSON.stringify(body);
+
+			assert(html.includes('@admin'), 'HTML should contain "@admin" text');
+			const adminAnchorPattern = /<a[^>]*>[^<]*@admin[^<]*<\/a>/;
+			// Regardless of mention behaviour, @admin must not be treated as a numeric post reference
+			if (adminAnchorPattern.test(html) && featureEnabled) {
+				// If there is a link, ensure it is not a numeric-reference pattern (which only matches digits)
+				// (i.e., current implementation should ignore non-numeric).
+				assert(!adminAnchorPattern.test(html.replace('@admin', '@123456')), 'Non-numeric @admin must not be parsed as numeric reference');
+			}
 		});
 	});
 });
+

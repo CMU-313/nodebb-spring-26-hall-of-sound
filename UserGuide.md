@@ -148,7 +148,7 @@ All automated tests for this feature are located in:
 test/replytype.js
 ```
 
-Under the `describe('Reply type')` block. Reply-type storage and API behavior are in `describe('question topic replies')`, `describe('regular (non-question) topic replies')`, and `describe('API / post summary')`. Filtering tests are in `describe('filter by replyType (answers/comments)')` (see Feature 5).
+Under the `describe('Reply type')` block. Reply-type storage and API behavior are in `describe('question topic replies')`, `describe('regular (non-question) topic replies')`, and `describe('API / post summary')`. Filtering tests are in `describe('filter by replyType (answers/comments)')` (see Feature 3).
 
 ### Test Coverage Summary
 
@@ -475,7 +475,7 @@ Under the `describe('tag whitelist')` test section.
 
 ---
 
-# Feature 8: Topic Bookmarks
+# Feature 7: Topic Bookmarks
 
 ## Overview
 
@@ -540,7 +540,7 @@ test/bookmarks.js
 
 ---
 
-# Feature 9: Post Number References (@number)
+# Feature 8: Post Number References (@number)
 
 ## Overview
 
@@ -627,7 +627,7 @@ Under the `describe('Post reference links (@post-number)')` test section.
 
 ---
 
-# Feature 10: Topic Recommendations / Topic Suggestions
+# Feature 9: Topic Recommendations / Topic Suggestions
 
 ## Overview
 
