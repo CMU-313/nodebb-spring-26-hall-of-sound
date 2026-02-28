@@ -67,6 +67,7 @@ module.exports = function (Posts) {
 
 		posts = posts.filter(post => tidToTopic[post.tid]);
 
+		options.uid = options.uid !== undefined ? options.uid : uid;
 		posts = await parsePosts(posts, options);
 		const result = await plugins.hooks.fire('filter:post.getPostSummaryByPids', { posts: posts, uid: uid });
 		return result.posts;
@@ -78,6 +79,11 @@ module.exports = function (Posts) {
 				return post;
 			}
 			if (options.parse) {
+				Object.defineProperty(post, 'parsedForUid', {
+					value: options.uid,
+					enumerable: false,
+					configurable: true,
+				});
 				post = await Posts.parsePost(post);
 			}
 			if (options.stripTags) {

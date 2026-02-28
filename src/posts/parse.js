@@ -59,6 +59,12 @@ module.exports = function (Posts) {
 
 		({ postData } = await plugins.hooks.fire('filter:parse.post', { postData, type }));
 		postData.content = translator.escape(postData.content);
+		try {
+			postData.content = await Posts.replacePostReferenceLinks(postData.content, postData.parsedForUid);
+		} catch (err) {
+			// Fallback: leave content as escaped text so invalid/unauthorized refs never break rendering
+			winston.verbose('[posts/references] replacePostReferenceLinks failed, preserving plain text: ' + err.message);
+		}
 		if (postData.pid) {
 			cache.set(cacheKey, postData.content);
 		}
