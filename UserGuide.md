@@ -111,7 +111,194 @@ Under the `describe('Topic Type - Question/Note')` test section (near the end of
 
 ---
 
-# Feature 2: Instructor-Endorsed Answers
+# Feature 2: Answer/Comment Reply Type
+
+## Overview
+
+On **Question** topics, users can classify each reply as either an **Answer** or a **Comment**. The reply type is chosen when posting (quick reply or main composer) and is shown as a badge on each reply. Only **Answer** replies can be endorsed by instructors; comments cannot be endorsed. On **Note** topics, replies do not have this choice and are treated as comments.
+
+## How to Use
+
+### Replying with Answer or Comment (Question Topics)
+
+1. Open a **Question** topic (identified by the **Question** tag).
+2. When replying, you will see a **"Post as"** control with two options: **Answer** and **Comment**.
+3. **Quick reply** (at the bottom of the topic): Select **Answer** or **Comment** before typing and submitting. **Comment** is selected by default.
+4. **Main reply composer** (click **Reply** to open the full composer): Use the same **Post as** radio group — choose **Answer** or **Comment** (default **Comment**), then write and submit.
+
+Your choice is stored with the post and displayed as a green **"Answer"** or gray **"Comment"** badge next to the reply.
+
+### Default Behavior
+
+- If you do not change the selector, your reply is saved as a **Comment**.
+- On **Note** topics, the Answer/Comment selector is not shown; all replies are treated as comments.
+
+### Identifying Reply Types
+
+- Each reply on a question topic shows a badge: **Answer** (green) or **Comment** (gray).
+- Endorsement is only available on **Answer** replies — instructors use the checkmark on answers to endorse them.
+
+## Testing
+
+### Test Location
+
+All automated tests for this feature are located in:
+
+```
+test/replytype.js
+```
+
+Under the `describe('Reply type')` block. Reply-type storage and API behavior are in `describe('question topic replies')`, `describe('regular (non-question) topic replies')`, and `describe('API / post summary')`. Filtering tests are in `describe('filter by replyType (answers/comments)')` (see Feature 5).
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Question topic replies** | Storing `answer`/`comment`, default to comment, case normalization, rejection of invalid replyType | Covers users selecting Answer or Comment when replying and validation |
+| **Regular topic replies** | replyType not stored when replying to non-question topics | Ensures reply type only applies on question topics |
+| **API / post summary** | replyType included in post summary data | Ensures UI can display Answer/Comment badges from API |
+
+### Test Descriptions
+
+**Group A — Question topic replies (5 tests):**
+- Stores replyType `"answer"` when replying with replyType answer
+- Stores replyType `"comment"` when replying with replyType comment
+- Defaults to `"comment"` when replyType is omitted on a question topic
+- Accepts replyType in different case and normalizes to lowercase (e.g. `"ANSWER"` → `"answer"`)
+- Rejects invalid replyType on question topic with `[[error:invalid-reply-type]]`
+
+**Group B — Regular (non-question) topic replies (1 test):**
+- Does not store replyType when replying to a regular topic even if replyType is sent (stored value is null)
+
+**Group C — API / post summary (1 test):**
+- replyType is included in post data when present (e.g. in getPostSummaryByPids result)
+
+---
+
+# Feature 3: Filtering by Answers/Comments/All Replies
+
+## Overview
+
+On **Question** topic pages, a filter dropdown above the post list lets you view **All** replies, only **Answers**, or only **Comments**. The main post (first post) is always shown; the filter only affects which replies are displayed. This makes it easier to focus on direct answers or on discussion comments.
+
+## How to Use
+
+### Using the Reply Filter
+
+1. Open a **Question** topic that has both answer and comment replies.
+2. Above the list of posts, find the **reply filter** dropdown (e.g. labeled **"Filter by reply type"**).
+3. Choose one of:
+   - **All** — show the main post and all replies (default).
+   - **Answers** — show the main post and only replies marked as **Answer**.
+   - **Comments** — show the main post and only replies marked as **Comment**.
+4. The topic view updates immediately to show only the selected type of replies; the main post always remains visible.
+
+### Where the Filter Appears
+
+- The filter is only present on **Question** topic pages. It is not shown on **Note** topics or on categories.
+
+## Testing
+
+### Test Location
+
+Tests for this feature are located in:
+
+```
+test/replytype.js
+```
+
+Under the `describe('filter by replyType (answers/comments)')` section within `describe('Reply type')`.
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Filter "all"** | All posts (main + all replies) returned when filter is "all" | Covers default view |
+| **Filter "answer"** | Only main post and answer-type replies when filter is "answer" | Covers Answers filter behavior |
+| **Filter "comment"** | Only main post and comment-type replies when filter is "comment" | Covers Comments filter behavior |
+| **Main post always included** | First post included for every filter value; main post has no replyType | Ensures topic context is always visible |
+| **Mutual exclusion** | Answer pids do not appear in comment filter; comment pids do not appear in answer filter | Ensures filters correctly separate answers and comments |
+
+### Test Descriptions
+
+**Group A — Filter "all" (1 test):**
+- Returns all posts (main post + 4 replies) when filter is `"all"`; count matches full topic posts
+
+**Group B — Filter "answer" (1 test):**
+- Returns only main post and answers when filter is `"answer"` (e.g. main + 2 answers); every reply has replyType `"answer"`
+
+**Group C — Filter "comment" (1 test):**
+- Returns only main post and comments when filter is `"comment"` (e.g. main + 2 comments); every reply has replyType `"comment"`
+
+**Group D — Main post always included (1 test):**
+- For each filter value (`"all"`, `"answer"`, `"comment"`), filtered list has at least one post; first post is always the main post (same pid) and has no replyType
+
+**Group E — Mutual exclusion (1 test):**
+- Answer pids do not appear in the comment-filtered list; comment pids do not appear in the answer-filtered list
+
+---
+
+# Feature 4: Answered/Unanswered Filter for Question-Tagged Topics
+
+## Overview
+
+When viewing a list of topics filtered by the **Question** tag (on a category page or world topic list), you can further filter by answer status: **Answered** or **Unanswered**. **Answered** means the topic has at least one non-deleted reply with `replyType="answer"`; otherwise the topic is **Unanswered**. The filter uses the query parameter `answerStatus=answered` or `answerStatus=unanswered` and preserves the selected tag and pagination.
+
+## How to Use
+
+### Where the Filter Appears
+
+1. Navigate to a category page (or the world topic list).
+2. Use the **tag filter** to select the **Question** tag so only question-type topics are listed.
+3. An **answer status** dropdown appears (e.g. "All" / "Answered" / "Unanswered").
+4. Select **Answered** to see only topics that have at least one non-deleted reply with type **Answer** (`replyType=answer`).
+5. Select **Unanswered** to see only topics with no such answer replies.
+6. The URL includes `answerStatus=answered` or `answerStatus=unanswered`; the selected tag and pagination parameters are preserved.
+
+### Step-by-Step User Test
+
+1. Create a **Question** topic. Confirm it appears when the **Question** tag is selected and **Unanswered** is chosen.
+2. Open the topic and add a reply with reply type **Answer**. Return to the category, filter by **Question** + **Answered**. The topic should now appear under **Answered**.
+3. Delete the answer reply (or change its type). The topic should move back to **Unanswered**. Restore an answer reply; the topic should again show under **Answered**.
+4. Confirm the URL uses `answerStatus=answered` or `answerStatus=unanswered` as appropriate and that tag and pagination are preserved when switching answer status.
+
+## Testing
+
+### Test Location
+
+Tests for this feature are located in:
+
+```
+test/topic-type-answered-filter.js
+```
+
+### Test Coverage Summary
+
+| Test Group | What It Covers | Why It's Sufficient |
+|---|---|---|
+| **Answered/unanswered definition** | Topic counted as Answered when it has ≥1 non-deleted reply with replyType=answer; else Unanswered | Verifies the core definition used by the filter |
+| **Filter and URL params** | Dropdown selection, `answerStatus=answered` / `answerStatus=unanswered` in URL, tag and pagination preserved | Covers UI and URL behavior for graders |
+| **Add/remove answer and status update** | Adding an answer moves topic to Answered; deleting or changing reply type moves it to Unanswered; restore restores Answered | Covers lifecycle and delete/restore edge cases |
+
+### Test Descriptions
+
+**Group A — Answered/unanswered definition (3 tests):**
+- Verifies topic with no answer replies is Unanswered
+- Verifies topic with at least one non-deleted answer reply is Answered
+- Verifies deleted answer replies do not count toward Answered
+
+**Group B — Filter and URL params (2 tests):**
+- Verifies answer status dropdown appears when Question tag is selected
+- Verifies selecting Answered/Unanswered sets `answerStatus` query param and preserves tag and pagination
+
+**Group C — Add/remove answer and status update (3 tests):**
+- Adding an answer reply to an Unanswered question moves it to Answered
+- Deleting the answer (or changing reply type) moves topic back to Unanswered
+- Restoring an answer moves topic back to Answered
+
+---
+
+# Feature 5: Instructor-Endorsed Answers
 
 ## Overview
 
@@ -192,7 +379,7 @@ Under the `describe('Instructor-Endorsed Answers')` test section (near the end o
 
 ---
 
-# Feature 3: Course Tags (Category Tag Whitelist)
+# Feature 6: Course Tags (Category Tag Whitelist)
 
 ## Overview
 
@@ -288,67 +475,7 @@ Under the `describe('tag whitelist')` test section.
 
 ---
 
-# Feature 4: Answered/Unanswered Filter for Question-Tagged Topics
-
-## Overview
-
-When viewing a list of topics filtered by the **Question** tag (on a category page or world topic list), you can further filter by answer status: **Answered** or **Unanswered**. **Answered** means the topic has at least one non-deleted reply with `replyType="answer"`; otherwise the topic is **Unanswered**. The filter uses the query parameter `answerStatus=answered` or `answerStatus=unanswered` and preserves the selected tag and pagination.
-
-## How to Use
-
-### Where the Filter Appears
-
-1. Navigate to a category page (or the world topic list).
-2. Use the **tag filter** to select the **Question** tag so only question-type topics are listed.
-3. An **answer status** dropdown appears (e.g. "All" / "Answered" / "Unanswered").
-4. Select **Answered** to see only topics that have at least one non-deleted reply with type **Answer** (`replyType=answer`).
-5. Select **Unanswered** to see only topics with no such answer replies.
-6. The URL includes `answerStatus=answered` or `answerStatus=unanswered`; the selected tag and pagination parameters are preserved.
-
-### Step-by-Step User Test
-
-1. Create a **Question** topic. Confirm it appears when the **Question** tag is selected and **Unanswered** is chosen.
-2. Open the topic and add a reply with reply type **Answer**. Return to the category, filter by **Question** + **Answered**. The topic should now appear under **Answered**.
-3. Delete the answer reply (or change its type). The topic should move back to **Unanswered**. Restore an answer reply; the topic should again show under **Answered**.
-4. Confirm the URL uses `answerStatus=answered` or `answerStatus=unanswered` as appropriate and that tag and pagination are preserved when switching answer status.
-
-## Testing
-
-### Test Location
-
-Tests for this feature are located in:
-
-```
-test/topic-type-answered-filter.js
-```
-
-### Test Coverage Summary
-
-| Test Group | What It Covers | Why It's Sufficient |
-|---|---|---|
-| **Answered/unanswered definition** | Topic counted as Answered when it has ≥1 non-deleted reply with replyType=answer; else Unanswered | Verifies the core definition used by the filter |
-| **Filter and URL params** | Dropdown selection, `answerStatus=answered` / `answerStatus=unanswered` in URL, tag and pagination preserved | Covers UI and URL behavior for graders |
-| **Add/remove answer and status update** | Adding an answer moves topic to Answered; deleting or changing reply type moves it to Unanswered; restore restores Answered | Covers lifecycle and delete/restore edge cases |
-
-### Test Descriptions
-
-**Group A — Answered/unanswered definition (3 tests):**
-- Verifies topic with no answer replies is Unanswered
-- Verifies topic with at least one non-deleted answer reply is Answered
-- Verifies deleted answer replies do not count toward Answered
-
-**Group B — Filter and URL params (2 tests):**
-- Verifies answer status dropdown appears when Question tag is selected
-- Verifies selecting Answered/Unanswered sets `answerStatus` query param and preserves tag and pagination
-
-**Group C — Add/remove answer and status update (3 tests):**
-- Adding an answer reply to an Unanswered question moves it to Answered
-- Deleting the answer (or changing reply type) moves topic back to Unanswered
-- Restoring an answer moves topic back to Answered
-
----
-
-# Feature 5: Topic Bookmarks
+# Feature 8: Topic Bookmarks
 
 ## Overview
 
@@ -413,7 +540,7 @@ test/bookmarks.js
 
 ---
 
-# Feature 6: Post Number References (@number)
+# Feature 9: Post Number References (@number)
 
 ## Overview
 
@@ -500,7 +627,7 @@ Under the `describe('Post reference links (@post-number)')` test section.
 
 ---
 
-# Feature 7: Topic Recommendations / Topic Suggestions
+# Feature 10: Topic Recommendations / Topic Suggestions
 
 ## Overview
 
