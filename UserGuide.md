@@ -4,6 +4,8 @@
 
 # Development Environment Setup
 
+**Note:** Steps 1 and 2 are only necessary if cloning the repository and running locally. The plugin is already active on the deployed website.
+
 1. **Install and activate local plugins:**
    ```bash
    ./setup-plugins.sh
