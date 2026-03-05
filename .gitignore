@@ -85,6 +85,8 @@ build/
 Feature_Plan.md
 CLAUDE.md
 
+lib/
+
 # Temp/corrupted directories (Docker overlayfs issues)
 # Use wildcards to catch renamed corrupted dirs
 npm-trash*/
