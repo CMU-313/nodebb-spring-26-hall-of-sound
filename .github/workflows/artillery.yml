@@ -1,0 +1,106 @@
+# Run Artillery load tests against a local NodeBB instance (setup + start + test).
+name: Artillery load test
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+  push:
+    branches: [main, master, develop]
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  artillery:
+    runs-on: ubuntu-latest
+    env:
+      TEST_ENV: 'production'
+
+    services:
+      redis:
+        image: 'redis:8.0.1'
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: cp install/package.json package.json
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: NPM Install
+        uses: bahmutov/npm-install@v1
+        with:
+          useLockFile: false
+
+      - name: Install Artillery
+        run: npm install --no-save artillery
+
+      - name: Setup on Redis
+        env:
+          SETUP: >-
+            {
+              "url": "http://127.0.0.1:4567/forum",
+              "secret": "abcdef",
+              "admin:username": "admin",
+              "admin:email": "test@example.org",
+              "admin:password": "hAN3Eg8W",
+              "admin:password:confirm": "hAN3Eg8W",
+              "database": "redis",
+              "redis:host": "127.0.0.1",
+              "redis:port": 6379,
+              "redis:password": "",
+              "redis:database": 0
+            }
+          CI: >-
+            {
+              "host": "127.0.0.1",
+              "database": 1,
+              "port": 6379
+            }
+        run: |
+          node app --setup="${SETUP}" --ci="${CI}"
+
+      - name: Install local plugins
+        run: ./setup-plugins.sh
+
+      - name: Build NodeBB
+        run: ./nodebb build
+
+      - name: Start NodeBB
+        run: |
+          npm start &
+          echo $! > .nodebb.pid
+
+      - name: Wait for NodeBB
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf -o /dev/null http://127.0.0.1:4567/forum; then
+              echo "NodeBB is ready."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "NodeBB did not become ready in time."
+          exit 1
+
+      - name: Run Artillery load test
+        run: npx artillery run tool-artifacts/artillery/artillery.ci.yml
+
+      - name: Stop NodeBB
+        if: always()
+        run: |
+          [ -f .nodebb.pid ] && kill $(cat .nodebb.pid) 2>/dev/null || true
