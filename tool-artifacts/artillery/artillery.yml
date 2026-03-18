@@ -1,3 +1,5 @@
+# Canonical Artillery load-test config (e.g. run against deployed server).
+# For CI, the workflow uses artillery.ci.yml which targets the local server.
 config:
   target: "http://17313-team02.s3d.cmu.edu:4567"
   phases:
