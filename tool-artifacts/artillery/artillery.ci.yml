@@ -1,0 +1,19 @@
+# CI-only Artillery config: targets local server (matches test workflow setup URL).
+config:
+  target: "http://127.0.0.1:4567/forum"
+  phases:
+    - duration: 30
+      arrivalRate: 2
+  defaults:
+    headers:
+      User-Agent: "CMU-313-artillery-test"
+
+scenarios:
+  - name: "Basic browsing (no auth)"
+    flow:
+      - get:
+          url: "/"
+      - get:
+          url: "/categories"
+      - get:
+          url: "/recent"
