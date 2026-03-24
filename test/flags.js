@@ -1058,6 +1058,10 @@ describe('Flags', () => {
 			const noteTime = Date.now();
 
 			before(async () => {
+				// Disable rate limiting for tests to prevent flakiness
+				Meta.config.initialPostDelay = 0;
+				Meta.config.newbiePostDelay = 0;
+
 				uid = await User.create({ username: 'flags-access-control', password: 'abcdef' });
 				({ jar, csrf_token } = await helpers.loginUser('flags-access-control', 'abcdef'));
 				console.log('cs', csrfToken);

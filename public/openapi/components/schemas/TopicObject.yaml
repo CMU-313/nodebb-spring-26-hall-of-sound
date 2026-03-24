@@ -106,6 +106,10 @@ TopicObject:
               description: A topic identifier
             content:
               type: string
+            isEnglish:
+              type: boolean
+            translatedContent:
+              type: string
             sourceContent:
               type: string
               nullable: true
