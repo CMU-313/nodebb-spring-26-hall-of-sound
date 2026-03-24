@@ -31,8 +31,16 @@ jobs:
           password: ${{ secrets.ADMIN_PASSWORD }}
           script: | 
             cd ${{ secrets.REPO_NAME }}
-            git pull origin main
-            docker compose down
+            git checkout main
+            git pull --ff-only origin main
+            echo "Deployed commit:"
+            git rev-parse --short HEAD
+            git log --oneline -n 3
+            docker compose -f docker-compose-redis.yml down
             docker compose -f docker-compose-redis.yml up --build -d
             docker compose -f docker-compose-redis.yml exec -T nodebb ./nodebb build
+            echo "Verifying translation source in container:"
+            docker compose -f docker-compose-redis.yml exec -T nodebb sh -lc "grep -n \"nonEnglishKeywords\\|translatedContent\" /usr/src/app/src/translate/index.js /usr/src/app/src/posts/create.js /usr/src/app/src/posts/data.js"
+            echo "Verifying rebuilt translation UI in build output:"
+            docker compose -f docker-compose-redis.yml exec -T nodebb sh -lc "grep -R -n \"view-translated-btn\" /usr/src/app/build/public/templates /usr/src/app/public/src/client/topic.js"
             docker compose -f docker-compose-redis.yml restart nodebb
