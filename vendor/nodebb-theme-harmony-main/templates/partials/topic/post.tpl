@@ -82,6 +82,14 @@
 
 		<div class="content text-break" component="post/content" itemprop="text">
 			{posts.content}
+			{{{ if !posts.isEnglish }}}
+			<div class="sensitive-content-message">
+			<button class="btn btn-sm btn-primary view-translated-btn" type="button">Click here to view the translated message.</button>
+			</div>
+			<div class="translated-content" style="display:none;">
+			{posts.translatedContent}
+			</div>
+			{{{ end }}}
 		</div>
 
 		<div component="post/footer" class="post-footer border-bottom pb-2">

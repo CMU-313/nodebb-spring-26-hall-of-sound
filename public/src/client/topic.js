@@ -72,11 +72,32 @@ define('forum/topic', [
 		addCrosspostsHandler();
 
 		$(window).on('scroll', utils.debounce(updateTopicTitle, 250));
+		configurePostToggle();
 
 		handleTopicSearch();
 
 		hooks.fire('action:topic.loaded', ajaxify.data);
 	};
+
+	function configurePostToggle() {
+		$('.topic').on('click', '.view-translated-btn', function (e) {
+			e.preventDefault();
+			const $btn = $(this);
+			const $message = $btn.closest('.sensitive-content-message');
+			const $translatedContent = $message.next('.translated-content');
+
+			// Toggle the visibility
+			$translatedContent.toggle();
+
+			// Update button text based on visibility
+			if ($translatedContent.is(':visible')) {
+				$btn.text('Hide the translated message.');
+			} else {
+				$btn.text('Click here to view the translated message.');
+			}
+		});
+	}
+
 
 	function handleTopicSearch() {
 		require(['mousetrap'], (mousetrap) => {
