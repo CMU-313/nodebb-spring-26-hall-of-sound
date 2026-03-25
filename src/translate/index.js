@@ -1,32 +1,36 @@
-
 /* eslint-disable strict */
-// var request = require('request');
 
 const translatorApi = module.exports;
+const TRANSLATOR_API = 'http://host.docker.internal:5000/';
+const REQUEST_TIMEOUT_MS = 5000;
 
-translatorApi.translate = function (postData) {
-	// Returns [isEnglish, translatedContent]
-	// For testing: Detect if post contains common non-English words
-	// In production, this should call your actual translator API
+translatorApi.translate = async function (postData) {
+	const content = (postData && postData.content) ? String(postData.content).trim() : '';
+	if (!content) {
+		return [true, ''];
+	}
 
-	const content = postData.content || '';
-	const nonEnglishKeywords = ['hola', 'bonjour', 'hallo', 'ciao', 'olá', 'привет', '你好', 'こんにちは'];
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-	// Check if content contains any non-English keywords
-	const isEnglish = !nonEnglishKeywords.some(keyword =>
-		content.toLowerCase().includes(keyword.toLowerCase()));
-
-	// For testing: provide a sample translation
-	const translatedContent = isEnglish ? '' :
-		'[TRANSLATED] This is a sample translation. Connect your translator API to get real translations.';
-
-	return [isEnglish, translatedContent];
+	try {
+		const url = new URL(TRANSLATOR_API);
+		url.searchParams.set('content', content);
+		const response = await fetch(url, {
+			method: 'GET',
+			signal: controller.signal,
+		});
+		if (!response.ok) {
+			return [true, ''];
+		}
+		const data = await response.json();
+		if (typeof data.is_english !== 'boolean' || typeof data.translated_content !== 'string') {
+			return [true, ''];
+		}
+		return [data.is_english, data.translated_content];
+	} catch (err) {
+		return [true, ''];
+	} finally {
+		clearTimeout(timeout);
+	}
 };
-
-// translatorApi.translate = async function (postData) {
-//  Edit the translator URL below
-//  const TRANSLATOR_API = "TODO"
-//  const response = await fetch(TRANSLATOR_API+'/?content='+postData.content);
-//  const data = await response.json();
-//  return [data.is_english, data.translated_content];
-// };
