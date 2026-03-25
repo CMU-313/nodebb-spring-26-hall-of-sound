@@ -84,6 +84,8 @@ dump.rdb
 build/
 Feature_Plan.md
 CLAUDE.md
+*.pyc
+__pycache__/
 
 # Temp/corrupted directories (Docker overlayfs issues)
 # Use wildcards to catch renamed corrupted dirs

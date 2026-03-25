@@ -12,7 +12,8 @@
     "scripts": {
         "start": "node loader.js",
         "lint": "eslint --cache ./nodebb .",
-        "test": "nyc --reporter=html --reporter=text-summary mocha",
+        "test": "nyc --reporter=html --reporter=text-summary mocha && npm run test:translator",
+        "test:translator": "PYTHONPATH=${TRANSLATOR_REPO_PATH:-../llm-experiment-microservice-hall-of-sound} python3 -m pytest test/python/test_translation_microservice.py -vv",
         "coverage": "nyc report --reporter=text-lcov > ./coverage/lcov.info",
         "coveralls": "nyc report --reporter=text-lcov | coveralls && rm -r coverage"
     },
