@@ -41,12 +41,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout translator repo
+        uses: actions/checkout@v4
+        with:
+          repository: CMU-313/llm-experiment-microservice-hall-of-sound
+          path: translator-service
+
       - run: cp install/package.json package.json
 
       - name: Install Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python test dependencies
+        run: pip install pytest
 
       - name: NPM Install
         uses: bahmutov/npm-install@v1
@@ -86,6 +100,8 @@ jobs:
         run: npm run lint
 
       - name: Node tests
+        env:
+          TRANSLATOR_REPO_PATH: ${{ github.workspace }}/translator-service
         run: npm test
 
       - name: Extract coverage info
