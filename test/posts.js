@@ -56,6 +56,25 @@ describe('Post\'s', () => {
 		await groups.join('Global Moderators', globalModUid);
 	});
 
+	it('should persist translation fields on newly created posts', async () => {
+		const isolatedTopic = await topics.post({
+			uid: voteeUid,
+			cid: cid,
+			title: 'Translation persistence topic',
+			content: 'Topic body for translation test',
+		});
+
+		const replyData = await topics.reply({
+			uid: voteeUid,
+			tid: isolatedTopic.topicData.tid,
+			content: 'Bonjour le monde',
+		});
+
+		const stored = await posts.getPostFields(replyData.pid, ['isEnglish', 'translatedContent']);
+		assert.strictEqual(stored.isEnglish, false);
+		assert.strictEqual(stored.translatedContent, '[hardcoded] Translated content');
+	});
+
 	it('should update category teaser properly', async () => {
 		const getCategoriesAsync = async () => (await request.get(`${nconf.get('url')}/api/categories`, { })).body;
 		const postResult = await topics.post({ uid: globalModUid, cid: cid, title: 'topic title', content: '123456789' });
