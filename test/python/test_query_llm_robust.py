@@ -1,10 +1,28 @@
 """Consolidated LLM robustness tests (mocks only; no Ollama or network)."""
 
+import importlib.util
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-import src.translator as translator
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_LOCAL_TRANSLATOR = _REPO_ROOT / "src" / "translator.py"
+
+
+def _load_local_translator():
+    spec = importlib.util.spec_from_file_location(
+        "_hall_of_sound_translator",
+        _LOCAL_TRANSLATOR,
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load translator from {_LOCAL_TRANSLATOR}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+translator = _load_local_translator()
 
 
 @pytest.mark.parametrize(
