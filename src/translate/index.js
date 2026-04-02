@@ -42,7 +42,12 @@ translatorApi.translate = async function (postData) {
 			logTranslation({ input: content, output: data, parsed: { isEnglish: true, translatedContent: '' }, note: 'invalid response format' });
 			return [true, ''];
 		}
-		logTranslation({ input: content, output: data, parsed: { isEnglish: data.is_english, translatedContent: data.translated_content } });
+		logTranslation({ input: content, 
+			output: data, 
+			parsed: { 
+				isEnglish: data.is_english, 
+				translatedContent: data.translated_content 
+			} });
 		return [data.is_english, data.translated_content];
 	} catch (err) {
 		logTranslation({ input: content, output: err.message, parsed: { isEnglish: true, translatedContent: '' }, note: 'exception' });
