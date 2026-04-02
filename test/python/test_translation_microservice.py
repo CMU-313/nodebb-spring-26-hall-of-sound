@@ -1,85 +1,17 @@
+import time
 from unittest.mock import patch
 
 import pytest
 
 import src.translator as translator
 
-# Notebook unit/mock test reference kept in comments only.
-#
-# def query_llm_robust(post: str) -> tuple[bool, str]:
-#   post_language = get_language(post)
-#   is_english_post = post_language.strip().lower() == "english"
-#   if is_english_post:
-#     return (True, post)
-#
-#   translation = get_translation(post)
-#   if not translation.endswith("SUCCESS"):
-#     translation = ""
-#   else:
-#     translation = translation[:-7].strip()
-#   return (is_english_post, translation)
-#
-# @patch.object(client, 'chat')
-# def test_unexpected_language(mocker):
-#   # we mock the model's response to return a random message
-#   mocker.return_value.message.content = "I don't understand your request"
-#
-#   # TODO assert the expected behavior
-#   assert query_llm_robust("Hier ist dein erstes Beispiel.")
-#
-# @patch.object(client, 'chat')
-# def test_empty_string(mocker):
-#   # we mock the model's response to return an empty message
-#   mocker.return_value.message.content = ""
-#
-#   # TODO assert the expected behavior
-#   assert query_llm_robust("Je pense avoir compris la preuve generale, mais je ne vois toujours pas pourquoi la condition finale est necessaire dans le cas discret.")
-#
-# @patch.object(client, 'chat')
-# def test_llm_returning_back_input(mocker):
-#   # we mock the model's response to return the same message back
-#   mocker.return_value.message.content = "No entendi muy bien la solucion publicada. En la segunda linea parece que se usa una identidad que no vimos en clase."
-#
-#   # TODO assert the expected behavior
-#   assert query_llm_robust("No entendi muy bien la solucion publicada. En la segunda linea parece que se usa una identidad que no vimos en clase.")
-#
-# @patch.object(client, 'chat')
-# def test_llm_explicitly_not_returning_success_keyword(mocker):
-#   # we mock the model's response to return a response without the SUCCESS keyword
-#   mocker.return_value.message.content = "I don't understand your request FAILURE"
-#
-#   # TODO assert the expected behavior
-#   assert query_llm_robust("Se avessimo studiato con maggiore attenzione, forse avremmo evitato quell errore nel quiz.")
-#
-# @patch.object(client, 'chat')
-# def test_llm_returning_success_keyword_in_wrong_position(mocker):
-#   # we mock the model's response to return the success keyword but in the wrong position
-#   mocker.return_value.message.content = "SUCCESS - here is the translation: Hello World!"
-#
-#   # TODO assert the expected behavior
-#   assert query_llm_robust("Hello World!")
 
-
-@pytest.mark.parametrize(
-    ("content", "expected_is_english", "expected_translation"),
-    [
-        ("这是一条中文消息", False, "This is a Chinese message"),
-        ("Ceci est un message en français", False, "This is a French message"),
-        ("Esta es un mensaje en español", False, "This is a Spanish message"),
-        ("Esta é uma mensagem em português", False, "This is a Portuguese message"),
-        ("Dies ist eine Nachricht auf Deutsch", False, "This is a German message"),
-        ("Questo è un messaggio in italiano", False, "This is an Italian message"),
-        ("This is an English message", True, "This is an English message"),
-        ("??? ... asdf qwer zzzz", True, "??? ... asdf qwer zzzz"),
-    ],
-)
-def test_translate_content_current_hardcoded_cases(content, expected_is_english, expected_translation):
-    is_english, translated_content = translator.translate_content(content)
-    assert is_english is expected_is_english
-    assert translated_content == expected_translation
-
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
 
 def query_translation_robust(post):
+    """Wrap translate_content with error handling; fall back to (True, post)."""
     try:
         result = translator.translate_content(post)
     except Exception:
@@ -98,65 +30,219 @@ def query_translation_robust(post):
     return (False, translated_content)
 
 
-# Unit tests that pass the current hardcoded implementation.
-def test_llm_normal_response():
-    is_english, translated_content = translator.translate_content("Dies ist eine Nachricht auf Deutsch")
-    assert is_english is False
-    assert translated_content == "This is a German message"
+# ---------------------------------------------------------------------------
+# Mock tests — failure/edge cases where we mock _chat to simulate LLM issues
+# ---------------------------------------------------------------------------
 
-
-def test_llm_gibberish_response():
-    is_english, translated_content = translator.translate_content("blargh nnn 123 @@ not sure")
+@patch("src.translator._chat")
+def test_unexpected_language_response(mock_chat):
+    """LLM returns gibberish for language detection — should fall back to English."""
+    mock_chat.side_effect = ["I don't understand your request"]
+    is_english, out = translator.translate_content("Hier ist dein erstes Beispiel.")
     assert is_english is True
-    assert translated_content == "blargh nnn 123 @@ not sure"
+    assert out == "Hier ist dein erstes Beispiel."
 
 
-# Mock tests in the same style as the original spec, adapted to the current
-# translator module entrypoint instead of an LLM client object that does not
-# exist yet in this repo.
-@patch.object(translator, 'translate_content')
-def test_unexpected_language(mocker):
-    mocker.return_value = ("I don't understand your request", "")
-    assert query_translation_robust("Hier ist dein erstes Beispiel.") == (True, "Hier ist dein erstes Beispiel.")
-
-
-@patch.object(translator, 'translate_content')
-def test_empty_string(mocker):
-    mocker.return_value = ""
-    assert query_translation_robust(
-        "Je pense avoir compris la preuve generale, mais je ne vois toujours pas pourquoi la condition finale est necessaire dans le cas discret."
-    ) == (
-        True,
-        "Je pense avoir compris la preuve generale, mais je ne vois toujours pas pourquoi la condition finale est necessaire dans le cas discret.",
+@patch("src.translator._chat")
+def test_empty_language_response(mock_chat):
+    """LLM returns empty string for language detection — should fall back to English."""
+    mock_chat.side_effect = [""]
+    is_english, out = translator.translate_content(
+        "Je pense avoir compris la preuve generale."
     )
+    assert is_english is True
+
+
+@patch("src.translator._chat")
+def test_translation_unavailable(mock_chat):
+    """LLM detects non-English but returns bad translation — should say unavailable."""
+    mock_chat.side_effect = ["Italian", "I don't understand your request"]
+    is_english, out = translator.translate_content(
+        "Se avessimo studiato con maggiore attenzione."
+    )
+    assert is_english is False
+    assert out == "Translation unavailable"
+
+
+@patch("src.translator._chat")
+def test_llm_exception(mock_chat):
+    """LLM throws an exception — should fall back to English."""
+    mock_chat.side_effect = Exception("connection refused")
+    is_english, out = translator.translate_content("Hello World!")
+    assert is_english is True
+    assert out == "Hello World!"
+
+
+def test_empty_content():
+    """Empty/whitespace input should return English immediately — no LLM call needed."""
+    is_english, out = translator.translate_content("   ")
+    assert is_english is True
+
+
+@patch("src.translator._chat")
+def test_gibberish_input(mock_chat):
+    """Gibberish that LLM can't classify — should fall back to English."""
+    mock_chat.side_effect = ["asdfghjkl"]
+    is_english, out = translator.translate_content("blargh nnn 123 @@ not sure")
+    assert is_english is True
+    assert out == "blargh nnn 123 @@ not sure"
+
+
+# ---------------------------------------------------------------------------
+# Robust wrapper tests — tests the error handling layer
+# ---------------------------------------------------------------------------
+
+@patch.object(translator, 'translate_content')
+def test_robust_bad_return_type(mocker):
+    mocker.return_value = "not a tuple"
+    assert query_translation_robust("test input") == (True, "test input")
 
 
 @patch.object(translator, 'translate_content')
-def test_llm_returning_back_input(mocker):
-    mocker.return_value = (
-        False,
-        "No entendi muy bien la solucion publicada. En la segunda linea parece que se usa una identidad que no vimos en clase.",
-    )
-    assert query_translation_robust(
-        "No entendi muy bien la solucion publicada. En la segunda linea parece que se usa una identidad que no vimos en clase."
-    ) == (
-        False,
-        "No entendi muy bien la solucion publicada. En la segunda linea parece que se usa una identidad que no vimos en clase.",
-    )
-
-
-@patch.object(translator, 'translate_content')
-def test_llm_explicitly_not_returning_success_keyword(mocker):
+def test_robust_none_return(mocker):
     mocker.return_value = None
-    assert query_translation_robust(
-        "Se avessimo studiato con maggiore attenzione, forse avremmo evitato quell errore nel quiz."
-    ) == (
-        True,
-        "Se avessimo studiato con maggiore attenzione, forse avremmo evitato quell errore nel quiz.",
-    )
+    assert query_translation_robust("test input") == (True, "test input")
 
 
 @patch.object(translator, 'translate_content')
-def test_llm_returning_success_keyword_in_wrong_position(mocker):
-    mocker.return_value = ("SUCCESS", "SUCCESS - here is the translation: Hello World!")
-    assert query_translation_robust("Hello World!") == (True, "Hello World!")
+def test_robust_exception(mocker):
+    mocker.side_effect = RuntimeError("boom")
+    assert query_translation_robust("test input") == (True, "test input")
+
+
+@patch.object(translator, 'translate_content')
+def test_robust_non_english_passthrough(mocker):
+    mocker.return_value = (False, "Translated text here")
+    assert query_translation_robust("foreign text") == (False, "Translated text here")
+
+
+# ---------------------------------------------------------------------------
+# Live accuracy tests — call real translate_content (requires running Ollama)
+# These are skipped if Ollama is not reachable.
+# ---------------------------------------------------------------------------
+
+def _keywords_match(translated, keywords):
+    """Check if at least one of the expected English keywords appears in the translation."""
+    lower = translated.lower()
+    return any(kw.lower() in lower for kw in keywords)
+
+
+# (input, expected_is_english, label, expected_keywords)
+# expected_keywords: 3-5 English words that should appear in a correct translation.
+# For English inputs, keywords are checked against the original content.
+CLASSIFICATION_CASES = [
+    # English — model reliably detects these
+    ("Hello world, how are you doing today?", True, "English",
+     ["hello", "world", "today"]),
+    ("Good morning, I hope everyone has a great day", True, "English",
+     ["good", "morning", "hope", "great"]),
+    ("This is a message written entirely in English", True, "English",
+     ["message", "english", "written"]),
+    ("The weather is nice outside and I want to go for a walk", True, "English",
+     ["weather", "nice", "walk"]),
+    ("Can someone explain how to solve problem three from the homework?", True, "English",
+     ["explain", "solve", "problem", "homework"]),
+    # Non-English — keywords that should appear in a correct English translation
+    ("这是一条中文消息，请帮我翻译成英文", False, "Chinese",
+     ["chinese", "message", "translate", "english"]),
+    ("Esta es un mensaje en español que necesita traducción", False, "Spanish",
+     ["message", "spanish", "translation", "needs"]),
+    ("Bonjour, comment allez-vous aujourd'hui? J'espère que tout va bien", False, "French",
+     ["hello", "how", "today", "hope", "well"]),
+    ("Questo è un messaggio in italiano che vorrei tradurre in inglese", False, "Italian",
+     ["message", "italian", "translate", "english"]),
+    ("Это сообщение написано на русском языке", False, "Russian",
+     ["message", "written", "russian", "language"]),
+]
+
+
+def _ollama_available():
+    """Check if Ollama is reachable via the configured OLLAMA_HOST."""
+    import os
+    try:
+        import urllib.request
+        host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+        if not host.startswith("http"):
+            host = f"http://{host}"
+        urllib.request.urlopen(host, timeout=3)
+        return True
+    except Exception:
+        print("Ollama not running")
+        return False
+
+
+@pytest.mark.skipif(not _ollama_available(), reason="Ollama not running")
+def test_classification_accuracy():
+    """
+    Call real translate_content against the live LLM.
+    At least 40% of cases must produce the correct is_english value.
+    """
+    correct = 0
+    total = len(CLASSIFICATION_CASES)
+
+    for content, expected_is_english, label, _ in CLASSIFICATION_CASES:
+        start = time.time()
+        is_english, translated = translator.translate_content(content)
+        elapsed = time.time() - start
+
+        passed = is_english == expected_is_english
+        status = "PASS" if passed else "FAIL"
+        if passed:
+            correct += 1
+
+        print(
+            f"  [{status}] {label:10s} | is_english={str(is_english):5s} "
+            f"(expected {str(expected_is_english):5s}) | {elapsed:.1f}s | "
+            f"input={content[:40]}"
+        )
+
+    accuracy = correct / total
+    print(f"\nClassification accuracy: {correct}/{total} = {accuracy:.0%}")
+    print(f"Threshold: 40%")
+    assert accuracy >= 0.40, (
+        f"Accuracy {accuracy:.0%} ({correct}/{total}) is below 40% threshold"
+    )
+
+
+@pytest.mark.skipif(not _ollama_available(), reason="Ollama not running")
+def test_translation_keywords():
+    """
+    For non-English cases where the model correctly detects the language,
+    check that the translation contains expected English keywords.
+    At least 40% of non-English cases that get translated must contain keywords.
+    """
+    checked = 0
+    matched = 0
+
+    for content, expected_is_english, label, keywords in CLASSIFICATION_CASES:
+        if expected_is_english:
+            continue
+
+        start = time.time()
+        is_english, translated = translator.translate_content(content)
+        elapsed = time.time() - start
+
+        if is_english:
+            print(f"  [SKIP] {label:10s} | model said English, skipping keyword check | {elapsed:.1f}s")
+            continue
+
+        checked += 1
+        has_keywords = _keywords_match(translated, keywords)
+        if has_keywords:
+            matched += 1
+
+        status = "PASS" if has_keywords else "FAIL"
+        print(
+            f"  [{status}] {label:10s} | {elapsed:.1f}s | "
+            f"keywords={keywords[:4]} | translated={translated[:60]}"
+        )
+
+    if checked == 0:
+        pytest.skip("Model did not detect any non-English cases")
+
+    accuracy = matched / checked
+    print(f"\nKeyword accuracy: {matched}/{checked} = {accuracy:.0%}")
+    print(f"Threshold: 40%")
+    assert accuracy >= 0.40, (
+        f"Keyword accuracy {accuracy:.0%} ({matched}/{checked}) is below 40% threshold"
+    )

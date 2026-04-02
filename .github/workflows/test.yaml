@@ -60,7 +60,13 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python test dependencies
-        run: pip install pytest
+        run: pip install pytest -r translator-service/requirements.txt
+
+      - name: Start Ollama and pull model via translator repo
+        run: |
+          cd translator-service
+          docker compose up -d ollama
+          docker compose up ollama-init
 
       - name: NPM Install
         uses: bahmutov/npm-install@v1
