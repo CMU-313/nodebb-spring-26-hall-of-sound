@@ -1,9 +1,11 @@
+import math
 import time
 from unittest.mock import patch
 
 import pytest
 
 import src.translator as translator
+from src.translator import _normalize_translation_response
 
 
 # ---------------------------------------------------------------------------
@@ -32,25 +34,24 @@ def query_translation_robust(post):
 
 # ---------------------------------------------------------------------------
 # Mock tests — failure/edge cases where we mock _chat to simulate LLM issues
+# (Translator repo unit tests own the "I don't understand" language-detection path.)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize(
+    "language_label,post",
+    [
+        ("", "Je pense avoir compris la preuve generale."),
+        ("asdfghjkl", "blargh nnn 123 @@ not sure"),
+    ],
+    ids=["empty_language_label", "gibberish_language_label"],
+)
 @patch("src.translator._chat")
-def test_unexpected_language_response(mock_chat):
-    """LLM returns gibberish for language detection — should fall back to English."""
-    mock_chat.side_effect = ["I don't understand your request"]
-    is_english, out = translator.translate_content("Hier ist dein erstes Beispiel.")
+def test_language_label_unparsed_falls_back_english(mock_chat, language_label, post):
+    """First-call language is empty vs unmapped token: same fallback (English, original post)."""
+    mock_chat.side_effect = [language_label]
+    is_english, out = translator.translate_content(post)
     assert is_english is True
-    assert out == "Hier ist dein erstes Beispiel."
-
-
-@patch("src.translator._chat")
-def test_empty_language_response(mock_chat):
-    """LLM returns empty string for language detection — should fall back to English."""
-    mock_chat.side_effect = [""]
-    is_english, out = translator.translate_content(
-        "Je pense avoir compris la preuve generale."
-    )
-    assert is_english is True
+    assert out == post
 
 
 @patch("src.translator._chat")
@@ -62,6 +63,29 @@ def test_translation_unavailable(mock_chat):
     )
     assert is_english is False
     assert out == "Translation unavailable"
+
+
+@pytest.mark.parametrize(
+    "bad_translation",
+    ["", "   \t  "],
+    ids=["empty", "whitespace_only"],
+)
+@patch("src.translator._chat")
+def test_translation_empty_or_whitespace_unavailable(mock_chat, bad_translation):
+    """Second LLM call is empty or whitespace-only after strip → Translation unavailable."""
+    mock_chat.side_effect = ["French", bad_translation]
+    is_english, out = translator.translate_content("Bonjour tout le monde")
+    assert is_english is False
+    assert out == "Translation unavailable"
+
+
+@patch("src.translator._chat")
+def test_translation_prefix_stripped(mock_chat):
+    """Prefixes like 'Translation:' should not leak into the stored English text."""
+    mock_chat.side_effect = ["German", "Translation: Here is one example."]
+    is_english, out = translator.translate_content("Hier ist ein erstes Beispiel.")
+    assert is_english is False
+    assert out == "Here is one example."
 
 
 @patch("src.translator._chat")
@@ -79,34 +103,23 @@ def test_empty_content():
     assert is_english is True
 
 
-@patch("src.translator._chat")
-def test_gibberish_input(mock_chat):
-    """Gibberish that LLM can't classify — should fall back to English."""
-    mock_chat.side_effect = ["asdfghjkl"]
-    is_english, out = translator.translate_content("blargh nnn 123 @@ not sure")
-    assert is_english is True
-    assert out == "blargh nnn 123 @@ not sure"
-
-
 # ---------------------------------------------------------------------------
 # Robust wrapper tests — tests the error handling layer
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize(
+    "return_value,side_effect",
+    [
+        ("not a tuple", None),
+        (None, None),
+        (None, RuntimeError("boom")),
+    ],
+    ids=["bad_return_type", "none_return", "exception"],
+)
 @patch.object(translator, 'translate_content')
-def test_robust_bad_return_type(mocker):
-    mocker.return_value = "not a tuple"
-    assert query_translation_robust("test input") == (True, "test input")
-
-
-@patch.object(translator, 'translate_content')
-def test_robust_none_return(mocker):
-    mocker.return_value = None
-    assert query_translation_robust("test input") == (True, "test input")
-
-
-@patch.object(translator, 'translate_content')
-def test_robust_exception(mocker):
-    mocker.side_effect = RuntimeError("boom")
+def test_robust_translate_content_failures(mocker, return_value, side_effect):
+    mocker.return_value = return_value
+    mocker.side_effect = side_effect
     assert query_translation_robust("test input") == (True, "test input")
 
 
@@ -121,38 +134,45 @@ def test_robust_non_english_passthrough(mocker):
 # These are skipped if Ollama is not reachable.
 # ---------------------------------------------------------------------------
 
-def _keywords_match(translated, keywords):
-    """Check if at least one of the expected English keywords appears in the translation."""
-    lower = translated.lower()
-    return any(kw.lower() in lower for kw in keywords)
+def _translation_keyword_metric(translated, source_text, keywords):
+    """
+    CI-safe quality bar for English translations: reuse the service's own rejection
+    rules via _normalize_translation_response only, require real change vs source,
+    and require multiple keyword hits (absolute + ratio) instead of any single match.
+    """
+    if not isinstance(translated, str):
+        return False
+    normalized = _normalize_translation_response(translated)
+    if normalized is None:
+        return False
+    candidate = normalized.strip()
+    if candidate == (source_text or "").strip():
+        return False
+
+    lower = candidate.lower()
+    matched = sum(1 for kw in keywords if kw.lower() in lower)
+    n = len(keywords) if keywords else 0
+    if n == 0:
+        return False
+    need = max(2, math.ceil(0.35 * n))
+    return matched >= need
 
 
+# Short fixture list for one integration smoke test (single translate_content call per row).
 # (input, expected_is_english, label, expected_keywords)
-# expected_keywords: 3-5 English words that should appear in a correct translation.
-# For English inputs, keywords are checked against the original content.
 CLASSIFICATION_CASES = [
-    # English — model reliably detects these
     ("Hello world, how are you doing today?", True, "English",
      ["hello", "world", "today"]),
     ("Good morning, I hope everyone has a great day", True, "English",
      ["good", "morning", "hope", "great"]),
     ("This is a message written entirely in English", True, "English",
      ["message", "english", "written"]),
-    ("The weather is nice outside and I want to go for a walk", True, "English",
-     ["weather", "nice", "walk"]),
-    ("Can someone explain how to solve problem three from the homework?", True, "English",
-     ["explain", "solve", "problem", "homework"]),
-    # Non-English — keywords that should appear in a correct English translation
     ("这是一条中文消息，请帮我翻译成英文", False, "Chinese",
      ["chinese", "message", "translate", "english"]),
     ("Esta es un mensaje en español que necesita traducción", False, "Spanish",
      ["message", "spanish", "translation", "needs"]),
     ("Bonjour, comment allez-vous aujourd'hui? J'espère que tout va bien", False, "French",
      ["hello", "how", "today", "hope", "well"]),
-    ("Questo è un messaggio in italiano che vorrei tradurre in inglese", False, "Italian",
-     ["message", "italian", "translate", "english"]),
-    ("Это сообщение написано на русском языке", False, "Russian",
-     ["message", "written", "russian", "language"]),
 ]
 
 
@@ -172,77 +192,59 @@ def _ollama_available():
 
 
 @pytest.mark.skipif(not _ollama_available(), reason="Ollama not running")
-def test_classification_accuracy():
+def test_live_translate_smoke():
     """
-    Call real translate_content against the live LLM.
-    At least 40% of cases must produce the correct is_english value.
+    One LLM round-trip per row: classification smoke plus keyword check when the model
+    flags non-English. Full live matrices stay in the translator repo; this is not a second suite.
     """
-    correct = 0
     total = len(CLASSIFICATION_CASES)
+    correct_class = 0
+    kw_checked = 0
+    kw_matched = 0
 
-    for content, expected_is_english, label, _ in CLASSIFICATION_CASES:
+    for content, expected_is_english, label, keywords in CLASSIFICATION_CASES:
         start = time.time()
         is_english, translated = translator.translate_content(content)
         elapsed = time.time() - start
 
-        passed = is_english == expected_is_english
-        status = "PASS" if passed else "FAIL"
-        if passed:
-            correct += 1
-
+        class_ok = is_english == expected_is_english
+        if class_ok:
+            correct_class += 1
+        cstatus = "PASS" if class_ok else "FAIL"
         print(
-            f"  [{status}] {label:10s} | is_english={str(is_english):5s} "
+            f"  [{cstatus}] {label:10s} | is_english={str(is_english):5s} "
             f"(expected {str(expected_is_english):5s}) | {elapsed:.1f}s | "
             f"input={content[:40]}"
         )
 
-    accuracy = correct / total
-    print(f"\nClassification accuracy: {correct}/{total} = {accuracy:.0%}")
-    print(f"Threshold: 40%")
-    assert accuracy >= 0.40, (
-        f"Accuracy {accuracy:.0%} ({correct}/{total}) is below 40% threshold"
+        if not expected_is_english:
+            if is_english:
+                print(
+                    f"  [SKIP_KW] {label:10s} | model said English, skipping keyword check | "
+                    f"{elapsed:.1f}s"
+                )
+            else:
+                kw_checked += 1
+                has_kw = _translation_keyword_metric(translated, content, keywords)
+                if has_kw:
+                    kw_matched += 1
+                kstatus = "PASS" if has_kw else "FAIL"
+                print(
+                    f"  [{kstatus}_KW] {label:10s} | {elapsed:.1f}s | "
+                    f"keywords={keywords[:4]} | translated={translated[:60]}"
+                )
+
+    class_acc = correct_class / total
+    print(f"\nClassification: {correct_class}/{total} = {class_acc:.0%} (threshold 40%)")
+    assert class_acc >= 0.40, (
+        f"Classification {class_acc:.0%} ({correct_class}/{total}) is below 40% threshold"
     )
 
-
-@pytest.mark.skipif(not _ollama_available(), reason="Ollama not running")
-def test_translation_keywords():
-    """
-    For non-English cases where the model correctly detects the language,
-    check that the translation contains expected English keywords.
-    At least 40% of non-English cases that get translated must contain keywords.
-    """
-    checked = 0
-    matched = 0
-
-    for content, expected_is_english, label, keywords in CLASSIFICATION_CASES:
-        if expected_is_english:
-            continue
-
-        start = time.time()
-        is_english, translated = translator.translate_content(content)
-        elapsed = time.time() - start
-
-        if is_english:
-            print(f"  [SKIP] {label:10s} | model said English, skipping keyword check | {elapsed:.1f}s")
-            continue
-
-        checked += 1
-        has_keywords = _keywords_match(translated, keywords)
-        if has_keywords:
-            matched += 1
-
-        status = "PASS" if has_keywords else "FAIL"
-        print(
-            f"  [{status}] {label:10s} | {elapsed:.1f}s | "
-            f"keywords={keywords[:4]} | translated={translated[:60]}"
-        )
-
-    if checked == 0:
+    if kw_checked == 0:
         pytest.skip("Model did not detect any non-English cases")
 
-    accuracy = matched / checked
-    print(f"\nKeyword accuracy: {matched}/{checked} = {accuracy:.0%}")
-    print(f"Threshold: 40%")
-    assert accuracy >= 0.40, (
-        f"Keyword accuracy {accuracy:.0%} ({matched}/{checked}) is below 40% threshold"
+    kw_acc = kw_matched / kw_checked
+    print(f"Keywords (when non-English): {kw_matched}/{kw_checked} = {kw_acc:.0%} (threshold 40%)")
+    assert kw_acc >= 0.40, (
+        f"Keyword accuracy {kw_acc:.0%} ({kw_matched}/{kw_checked}) is below 40% threshold"
     )
