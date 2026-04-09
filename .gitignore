@@ -87,6 +87,8 @@ CLAUDE.md
 *.pyc
 __pycache__/
 
+lib/
+
 # Temp/corrupted directories (Docker overlayfs issues)
 # Use wildcards to catch renamed corrupted dirs
 npm-trash*/
